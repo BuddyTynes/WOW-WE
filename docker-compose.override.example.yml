@@ -1,0 +1,79 @@
+services:
+  wow-llm-bridge:
+    container_name: wow-llm-bridge
+    build:
+      context: ../llm-bridge
+    env_file:
+      - ../llm-bridge/.env
+    networks:
+      - ac-network
+    ports:
+      - ${WOW_LLM_BRIDGE_EXTERNAL_PORT:-11435}:11434
+    restart: unless-stopped
+
+  ac-worldserver:
+    build:
+      args:
+        APPS_BUILD: world-only
+        CTOOLS_BUILD: db-only
+        BUILD_JOBS: "2"
+    depends_on: !override
+      ac-database:
+        condition: service_healthy
+      wow-llm-bridge:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      AC_PLAYERBOTS_UPDATES_ENABLE_DATABASES: "1"
+      AC_PLAYERBOTS_DATABASE_WORKER_THREADS: "1"
+      AC_PLAYERBOTS_DATABASE_SYNCH_THREADS: "1"
+      AC_AI_PLAYERBOT_MIN_RANDOM_BOTS: "250"
+      AC_AI_PLAYERBOT_MAX_RANDOM_BOTS: "250"
+      AC_AI_PLAYERBOT_RANDOM_BOTS_PER_INTERVAL: "20"
+      AC_RATE_XP_KILL: "${WOW_XP_RATE:-1.2}"
+      AC_RATE_XP_QUEST: "${WOW_XP_RATE:-1.2}"
+      AC_RATE_XP_QUEST_DF: "${WOW_XP_RATE:-1.2}"
+      AC_RATE_XP_EXPLORE: "${WOW_XP_RATE:-1.2}"
+      AC_RATE_XP_PET: "${WOW_XP_RATE:-1.2}"
+      AC_RATE_CORPSE_DECAY_LOOTED: "0.01"
+      AC_STRICT_NAMES_PROFANITY: "0"
+      AC_DECLINED_NAMES: "0"
+      AC_STRICT_PLAYER_NAMES: "0"
+      AC_STRICT_PET_NAMES: "0"
+      AC_STRICT_CHARTER_NAMES: "0"
+      AC_ALLOW_TWO_SIDE_INTERACTION_AUCTION: "1"
+      AC_CHALLENGE_MODES_ENABLE: "1"
+      AC_HARDCORE_ENABLE: "1"
+      AC_SEMI_HARDCORE_ENABLE: "0"
+      AC_SELF_CRAFTED_ENABLE: "0"
+      AC_ITEM_QUALITY_LEVEL_ENABLE: "0"
+      AC_SLOW_XP_GAIN_ENABLE: "0"
+      AC_VERY_SLOW_XP_GAIN_ENABLE: "0"
+      AC_QUEST_XP_ONLY_ENABLE: "0"
+      AC_IRON_MAN_ENABLE: "0"
+      AC_INDIVIDUAL_PROGRESSION_ENABLE: "1"
+      AC_INDIVIDUAL_PROGRESSION_PROGRESSION_LIMIT: "${WOW_INDIVIDUAL_PROGRESSION_LIMIT:-1}"
+      AC_INDIVIDUAL_PROGRESSION_STARTING_PROGRESSION: "0"
+      AC_INDIVIDUAL_PROGRESSION_DISABLE_DEFAULT_PROGRESSION: "${WOW_INDIVIDUAL_PROGRESSION_DISABLE_DEFAULT:-1}"
+      AC_INDIVIDUAL_PROGRESSION_SIMPLE_CONFIG_OVERRIDE: "1"
+
+  ac-db-import:
+    profiles:
+      - setup
+    build:
+      args:
+        APPS_BUILD: world-only
+        CTOOLS_BUILD: db-only
+        BUILD_JOBS: "2"
+    environment:
+      AC_PLAYERBOTS_DATABASE_INFO: "ac-database;3306;root;${DOCKER_DB_ROOT_PASSWORD:-password};acore_playerbots"
+
+  ac-authserver:
+    depends_on: !override
+      ac-database:
+        condition: service_healthy
+
+  ac-client-data-init:
+    profiles:
+      - setup

@@ -1,0 +1,30 @@
+/cmake-build-debug/*
+/build*/
+/var/*
+!/var/build/.gitkeep
+!/var/ccache/.gitkeep
+/env/dist/*
+!/env/dist/.gitkeep
+/env/user/*
+/.env*
+.git
+.idea
+!.gitkeep
+
+# Local build/run logs and nested module repositories are not needed inside
+# Docker build contexts. Keeping them out makes rebuilds much faster.
+*.log
+*.err.log
+overnight-*.ps1
+overnight-*.status.log
+modules/**/.git
+modules/**/.github
+
+# This host already has its seeded database volume. For module rebuild/import
+# passes we only need current updates/custom/module SQL, not historical seed SQL.
+data/sql/base
+data/sql/old
+data/sql/archive
+
+# do not ignore the ccache folder (used by the ci)
+!/var/docker/ccache
