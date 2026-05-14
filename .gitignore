@@ -122,7 +122,8 @@ compile_commands.json
 *.err.log
 overnight-*.status.log
 
-# Keep ad-hoc backups local, but allow the shared testing snapshot chunks.
+# Keep ad-hoc backups local, but allow the shared testing snapshot.
 /backups/*
 !/backups/README.md
+!/backups/wow-live-db.sql.gz
 !/backups/wow-live-db.sql.gz.part*

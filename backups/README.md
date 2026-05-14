@@ -1,14 +1,10 @@
 # Live Database Snapshot
 
-This folder contains the shared testing database snapshot as split gzip chunks:
+This folder contains the shared testing database snapshot:
 
 ```text
-wow-live-db.sql.gz.part001
-wow-live-db.sql.gz.part002
-...
+wow-live-db.sql.gz
 ```
-
-The chunks are split because GitHub rejects individual files over 100 MB.
 
 To restore the snapshot into the local Docker MySQL container:
 
@@ -16,6 +12,5 @@ To restore the snapshot into the local Docker MySQL container:
 powershell -ExecutionPolicy Bypass -File .\scripts\restore-live-db.ps1
 ```
 
-The restore script reassembles `backups\wow-live-db.sql.gz`, copies it into
-`ac-database`, imports it with MySQL, then removes the temporary combined dump
-from the container.
+The restore script copies `backups\wow-live-db.sql.gz` into `ac-database`,
+imports it with MySQL, then removes the temporary dump from the container.
