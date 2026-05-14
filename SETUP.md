@@ -222,8 +222,19 @@ acore_playerbots
 
 If authserver or worldserver logs show `Unknown database 'acore_auth'`, do
 not run `ac-db-import` unless you intentionally want to create a fresh stock
-database from the SQL files in this repo. Ask for the project seed instead,
-for example a MySQL dump or a Docker volume backup for `wow-we_ac-database`.
+database from the SQL files in this repo. This repository includes the current
+project seed as split chunks in `backups\`.
+
+Restore the included live snapshot after `ac-database` exists:
+
+```powershell
+docker compose up -d --no-build ac-database
+powershell -ExecutionPolicy Bypass -File .\scripts\restore-live-db.ps1
+```
+
+The restore script reassembles `backups\wow-live-db.sql.gz` from the tracked
+`partNNN` files, copies it into the MySQL container, and imports
+`acore_auth`, `acore_characters`, `acore_world`, and `acore_playerbots`.
 
 The setup import service is only for applying repo/module SQL to the expected
 database state. Run it after source/module changes that include SQL updates:

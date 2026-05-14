@@ -54,6 +54,7 @@ Copy-Item .env.example .env
 Copy-Item docker-compose.override.example.yml docker-compose.override.yml
 powershell -ExecutionPolicy Bypass -File .\scripts\clone-modules.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\apply-host-config.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\restore-live-db.ps1
 ```
 
 Check status:
@@ -83,6 +84,9 @@ docker-compose.override.example.yml
 ```
 
 ## Current Notes
+
+The repo includes a split live database snapshot in `backups\`. Restore it with
+`scripts\restore-live-db.ps1` after the database container exists.
 
 The Dockerfile and `.dockerignore` contain local build fixes for this older Windows host. The main one is trimming Docker context and building with `WITHOUT_GIT=1`; this avoids long silent Docker hangs before BuildKit output appears.
 
