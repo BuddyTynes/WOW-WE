@@ -210,7 +210,23 @@ state.
 
 ## Database Import
 
-Run this after source/module changes that include SQL updates:
+This setup expects a project-seeded database, not an empty stock AzerothCore
+database. The seeded database must provide at least:
+
+```text
+acore_auth
+acore_characters
+acore_world
+acore_playerbots
+```
+
+If authserver or worldserver logs show `Unknown database 'acore_auth'`, do
+not run `ac-db-import` unless you intentionally want to create a fresh stock
+database from the SQL files in this repo. Ask for the project seed instead,
+for example a MySQL dump or a Docker volume backup for `wow-we_ac-database`.
+
+The setup import service is only for applying repo/module SQL to the expected
+database state. Run it after source/module changes that include SQL updates:
 
 ```powershell
 docker compose --profile setup up -d --no-build ac-db-import
