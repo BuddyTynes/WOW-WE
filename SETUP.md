@@ -1,23 +1,32 @@
 # Host Setup
 
-This repo documents Buddy's AzerothCore WotLK playerbots server.
+This repo documents an AzerothCore WotLK playerbots server.
 
-The expected parent folder is:
+The setup can live anywhere on the host. In this guide:
 
-```text
-C:\Users\Buddy\Documents\wow-ai-server
-```
+- `<server-root>` is the base folder that contains this checkout and any
+  sibling services.
+- `<core-repo>` is this AzerothCore checkout folder.
+
+Choose any folder for `<server-root>`, then clone or place this repository
+inside it as `<core-repo>`.
 
 The core repo lives at:
 
 ```text
-C:\Users\Buddy\Documents\wow-ai-server\azerothcore-wotlk
+<server-root>\<core-repo>
 ```
 
 The LLM bridge lives beside it:
 
 ```text
-C:\Users\Buddy\Documents\wow-ai-server\llm-bridge
+<server-root>\llm-bridge
+```
+
+From inside `<core-repo>`, the bridge path is:
+
+```text
+..\llm-bridge
 ```
 
 ## Prerequisites
@@ -25,17 +34,16 @@ C:\Users\Buddy\Documents\wow-ai-server\llm-bridge
 - Windows with Docker Desktop and WSL working
 - PowerShell
 - Git
-- Enough free C: drive space for Docker images, volumes, and build cache
+- Enough free space on the Docker data drive for images, volumes, and build
+  cache
 - WoW 3.3.5a client pointed at this server's auth address
 
 ## First-Time Checkout
 
 ```powershell
-cd C:\Users\Buddy\Documents
-mkdir wow-ai-server
-cd wow-ai-server
-git clone https://github.com/mod-playerbots/azerothcore-wotlk.git
-cd azerothcore-wotlk
+cd <server-root>
+git clone https://github.com/mod-playerbots/azerothcore-wotlk.git <core-repo>
+cd <core-repo>
 ```
 
 If this setup is published to a new fork, clone that fork instead of the upstream URL.
@@ -88,7 +96,7 @@ The host publishes it as:
 Use direct `buildx` commands instead of `docker compose up --build`; it is easier to monitor and avoids building unnecessary targets.
 
 ```powershell
-cd C:\Users\Buddy\Documents\wow-ai-server\azerothcore-wotlk
+cd <server-root>\<core-repo>
 
 docker buildx build --progress=plain --target worldserver `
   -t acore/ac-wotlk-worldserver:playerbots-local `
@@ -111,7 +119,8 @@ docker buildx build --progress=plain --target db-import `
   -f apps/docker/Dockerfile .
 ```
 
-On this host, `BUILD_JOBS=2` is conservative for memory. `3` may be possible; `4` can thrash.
+`BUILD_JOBS=2` is conservative for memory-constrained hosts. `3` may be
+possible; `4` can thrash on smaller machines.
 
 ## Database Import
 
