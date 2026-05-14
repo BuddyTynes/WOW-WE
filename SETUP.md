@@ -235,6 +235,27 @@ powershell -ExecutionPolicy Bypass -File .\scripts\restore-live-db.ps1
 The restore script copies the gzip dump into the MySQL container and imports
 `acore_auth`, `acore_characters`, `acore_world`, and `acore_playerbots`.
 
+After restoring a shared database snapshot, check the realm address that the
+authserver advertises to WoW clients:
+
+```powershell
+docker exec -e MYSQL_PWD=acore ac-database mysql -uroot -e "SELECT id, name, address, localAddress, localSubnetMask, port FROM acore_auth.realmlist;"
+```
+
+For local testing on the same machine as Docker, the realm should advertise
+`127.0.0.1:8085`:
+
+```powershell
+docker exec -e MYSQL_PWD=acore ac-database mysql -uroot -e "UPDATE acore_auth.realmlist SET address='127.0.0.1', localAddress='127.0.0.1', localSubnetMask='255.255.255.0', port=8085 WHERE id=1;"
+docker compose restart ac-authserver
+```
+
+For the shared server host, use the server's public/LAN address instead. The
+current shared server snapshot used `38.190.118.191:8085`. A mismatched realm
+address can still let users log in and see the realm or character count, but
+selecting the realm will kick them back to server select because the client is
+trying to connect to the wrong worldserver address.
+
 The setup import service is only for applying repo/module SQL to the expected
 database state. Run it after source/module changes that include SQL updates:
 
