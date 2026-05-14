@@ -300,4 +300,28 @@ For config-only changes:
 docker compose up -d --no-build --force-recreate ac-authserver ac-worldserver
 ```
 
+## GM Utilities
+
+Use the friend boost command to catch up an online real player to the
+group's current level with generated bot-style gear and supplies:
+
+```text
+.boost <playerName> <level>
+```
+
+If the target player is selected, the name can be omitted:
+
+```text
+.boost <level>
+```
+
+The command requires GM access, levels the character, learns level-appropriate
+class and trainer spells, assigns talents, equips level-appropriate generated
+gear, adds bags, consumables, reagents, ammo, mounts, pets where applicable,
+and initializes primary/secondary professions with recipes available from
+trainers up to that level. It only works while the target player is online.
+Generated gear is intentionally conservative for catch-up play: the command
+rolls mostly green gear with occasional blue pieces so there is still plenty to
+replace through dungeon and quest rewards.
+
 For full host notes and troubleshooting, see [SERVER_BUILD_RUNBOOK.md](SERVER_BUILD_RUNBOOK.md).

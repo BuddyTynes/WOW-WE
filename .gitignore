@@ -114,6 +114,8 @@ local.properties
 #  !modules/yourmodule
 #
 # ==================
+!/modules/mod-friend-boost/
+!/modules/mod-friend-boost/**
 .cache
 compile_commands.json
 

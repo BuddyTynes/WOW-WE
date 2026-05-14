@@ -94,6 +94,14 @@ Scripts follow a registration pattern:
 
 External modules are loaded from the `modules/` directory. Each module is a subdirectory with its own `CMakeLists.txt`. Disable specific modules with `-DDISABLED_AC_MODULES="mod1;mod2"`. Module skeleton: https://github.com/azerothcore/skeleton-module/
 
+The modules cloned into `modules/` are usually upstream/external repositories
+and are ignored by the top-level repo. Do not make project-specific feature
+changes directly inside cloned modules unless explicitly asked. For shareable
+local behavior, create a new repo-owned companion module such as
+`modules/mod-friend-boost` and add a narrow `.gitignore` exception for it. This
+keeps upstream modules clean so they can be updated or recloned across machines
+without losing project changes.
+
 ### Dependencies
 
 Bundled in `deps/`: boost, MySQL client, OpenSSL, zlib, recastnavigation (pathfinding), g3dlite (geometry), fmt, argon2, jemalloc, and others.
