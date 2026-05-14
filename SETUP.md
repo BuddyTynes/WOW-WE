@@ -91,6 +91,17 @@ The host publishes it as:
 127.0.0.1:11435
 ```
 
+Before using `docker compose up --no-build`, build the bridge image from
+the core repo so Compose creates the expected local image name:
+
+```powershell
+docker compose build wow-llm-bridge
+```
+
+The image can build before the API key is filled in, but the running bridge
+needs `OPENAI_API_KEY` in `..\llm-bridge\.env` before it can answer model
+requests.
+
 ## Build
 
 Use direct `buildx` commands instead of `docker compose up --build`; it is easier to monitor and avoids building unnecessary targets.
@@ -117,10 +128,85 @@ docker buildx build --progress=plain --target db-import `
   --build-arg CTOOLS_BUILD=db-only `
   --build-arg BUILD_JOBS=2 `
   -f apps/docker/Dockerfile .
+
+docker buildx build --progress=plain --target authserver `
+  -t acore/ac-wotlk-authserver:playerbots-local `
+  --build-arg DOCKER_USER=acore `
+  --build-arg USER_ID=1000 `
+  --build-arg GROUP_ID=1000 `
+  --build-arg APPS_BUILD=auth-only `
+  --build-arg CTOOLS_BUILD=none `
+  --build-arg BUILD_JOBS=2 `
+  -f apps/docker/Dockerfile .
+
+docker compose build wow-llm-bridge
 ```
 
 `BUILD_JOBS=2` is conservative for memory-constrained hosts. `3` may be
 possible; `4` can thrash on smaller machines.
+
+The authserver build intentionally uses `CTOOLS_BUILD=none`. Building
+`authserver` with `APPS_BUILD=auth-only` and `CTOOLS_BUILD=db-only` can make
+the `dbimport` tool compile without the generated module list and fail with:
+
+```text
+fatal error: use of undeclared identifier 'AC_MODULES_LIST'
+```
+
+After the build, verify that Compose can find the local images:
+
+```powershell
+docker compose config --quiet
+docker compose config --images
+docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"
+```
+
+Expected local images:
+
+```text
+acore/ac-wotlk-worldserver:playerbots-local
+acore/ac-wotlk-authserver:playerbots-local
+acore/ac-wotlk-db-import:playerbots-local
+wow-we-wow-llm-bridge:latest
+```
+
+`mysql:8.4` is not built locally; Docker pulls it the first time Compose
+starts the database.
+
+## Known Build Fixes
+
+The module set in this setup may need these compatibility fixes on a fresh
+checkout before the first successful build:
+
+- `modules\mod-challenge-modes\src\ChallengeModes.cpp` must use `bool&` for
+  the `OnPlayerResurrect` hook's third parameter:
+
+```cpp
+void OnPlayerResurrect(Player* player, float /*restore_percent*/, bool& /*applySickness*/) override
+```
+
+There are two occurrences in that file.
+
+- If `src\server\scripts\Custom` contains only `README.md`, static script
+  linking can fail with `undefined reference to AddCustomScripts()`. Add
+  `src\server\scripts\Custom\custom_script_loader.cpp`:
+
+```cpp
+void AddCustomScripts()
+{
+}
+```
+
+Docker Desktop on Windows may print warnings like:
+
+```text
+WARNING: Error loading config file: open C:\Users\<user>\.docker\config.json: Access is denied.
+```
+
+Those warnings are harmless when the command continues. If a Docker build
+stops on `CreateFile ...\.docker\buildx\instances: Access is denied`, rerun
+the command from an elevated shell or a shell with access to Docker's buildx
+state.
 
 ## Database Import
 
