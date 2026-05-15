@@ -1,0 +1,47 @@
+#
+# Hardcore module config
+#
+
+[worldserver]
+
+#
+# Enable command-based hardcore mode.
+#
+Hardcore.Enable = 1
+
+#
+# Client-known spell aura used as the visible hardcore marker.
+# Change this if the default spell has an unwanted visual or gameplay effect.
+#
+Hardcore.AuraSpellId = 21090
+
+#
+# Append this marker to hardcore character names in name-query responses.
+# This is what the 3.3.5a client uses for unit frames, nameplates, tooltips,
+# and player chat name rendering.
+#
+Hardcore.NameTag.Enable = 1
+Hardcore.NameTag = <HC>
+
+#
+# Give random playerbots a one-time chance to become hardcore on first login.
+#
+Hardcore.RandomBotEnable = 1
+Hardcore.RandomBotChance = 25
+
+#
+# Broadcast an on-screen and chat announcement when a hardcore character dies.
+#
+Hardcore.DeathAnnouncement.Enable = 1
+
+#
+# Keep dead hardcore random bots online this long before logging them out.
+# This gives the LLM/chat layer a short window to react to the death.
+#
+Hardcore.BotDeathLogoutDelay = 60
+
+#
+# Minimum account security level for `.hardcore bot <name> confirm`.
+# 0 = player, 1 = moderator, 2 = gamemaster, 3 = administrator.
+#
+Hardcore.BotCommandSecurity = 1

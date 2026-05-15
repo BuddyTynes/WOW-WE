@@ -64,6 +64,7 @@ enum PlayerHook
     PLAYERHOOK_ON_CHAT_WITH_GROUP,
     PLAYERHOOK_ON_CHAT_WITH_GUILD,
     PLAYERHOOK_ON_CHAT_WITH_CHANNEL,
+    PLAYERHOOK_ON_CUSTOMIZE_NAME_QUERY,
     PLAYERHOOK_ON_EMOTE,
     PLAYERHOOK_ON_TEXT_EMOTE,
     PLAYERHOOK_ON_SPELL_CAST,
@@ -315,6 +316,9 @@ public:
 
     // The following methods are called when a player sends a chat message.
     virtual void OnPlayerBeforeSendChatMessage(Player* /*player*/, uint32& /*type*/, uint32& /*lang*/, std::string& /*msg*/) { }
+
+    // Called before a name query response is sent to clients.
+    virtual void OnPlayerCustomizeNameQuery(ObjectGuid /*guid*/, std::string& /*name*/) { }
 
     // Both of the below are called on emote opcodes.
     virtual void OnPlayerEmote(Player* /*player*/, uint32 /*emote*/) { }

@@ -14,6 +14,11 @@ if (-not (Test-Path "docker-compose.override.yml") -and (Test-Path "docker-compo
 $moduleConfigDir = Join-Path $root "env\dist\etc\modules"
 New-Item -ItemType Directory -Force -Path $moduleConfigDir | Out-Null
 
+$staleChallengeConfig = Join-Path $moduleConfigDir "challenge_modes.conf"
+if (Test-Path $staleChallengeConfig) {
+    Remove-Item -LiteralPath $staleChallengeConfig -Force
+}
+
 function Set-ConfigValue {
     param(
         [string]$Path,
@@ -95,5 +100,13 @@ OllamaChat.RandomChatterMaxBotsPerPlayer = 1
 OllamaChat.EventChatterMaxBotsPerPlayer = 1
 OllamaChat.DisableRepliesInCombat = 1
 "@ | Set-Content -LiteralPath (Join-Path $moduleConfigDir "mod_ollama_chat.conf") -NoNewline
+
+$hardcoreSource = Join-Path $root "modules\mod-hardcore\conf\hardcore.conf.dist"
+$hardcoreTarget = Join-Path $moduleConfigDir "hardcore.conf"
+if (Test-Path $hardcoreSource) {
+    Copy-Item -LiteralPath $hardcoreSource -Destination $hardcoreTarget -Force
+} else {
+    Write-Warning "Could not find $hardcoreSource."
+}
 
 Write-Host "Host config applied."

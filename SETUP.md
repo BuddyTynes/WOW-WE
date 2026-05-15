@@ -178,15 +178,6 @@ starts the database.
 The module set in this setup may need these compatibility fixes on a fresh
 checkout before the first successful build:
 
-- `modules\mod-challenge-modes\src\ChallengeModes.cpp` must use `bool&` for
-  the `OnPlayerResurrect` hook's third parameter:
-
-```cpp
-void OnPlayerResurrect(Player* player, float /*restore_percent*/, bool& /*applySickness*/) override
-```
-
-There are two occurrences in that file.
-
 - If `src\server\scripts\Custom` contains only `README.md`, static script
   linking can fail with `undefined reference to AddCustomScripts()`. Add
   `src\server\scripts\Custom\custom_script_loader.cpp`:
@@ -267,6 +258,13 @@ docker compose logs --tail=200 ac-db-import
 
 Wait for `ac-db-import` to exit `0`.
 
+Repo-owned modules can include SQL under `modules\<module>\data\sql`. After
+adding or changing one of these modules, rebuild `ac-worldserver` and
+`ac-db-import`, rerun `scripts\apply-host-config.ps1`, then run the setup
+import service so new tables or cleanup SQL are applied. For example,
+`mod-hardcore` creates `acore_characters.mod_hardcore_characters` and removes
+the old Challenge Shrine rows during import.
+
 ## Start
 
 ```powershell
@@ -301,6 +299,28 @@ docker compose up -d --no-build --force-recreate ac-authserver ac-worldserver
 ```
 
 ## GM Utilities
+
+Use the hardcore command to permanently opt the current character into
+hardcore mode:
+
+```text
+.hardcore
+.hardcore enable confirm
+```
+
+Hardcore state is stored in the characters database by `mod-hardcore`; it does
+not require `EnablePlayerSettings`. Hardcore characters receive the configured
+indicator aura and a configurable `<HC>` name tag in client name-query
+responses, which is what unit frames, nameplates, tooltips, and player chat
+names use. By default, 25% of random playerbots are also marked hardcore the
+first time they are evaluated. Hardcore deaths send a global chat/server
+announcement and screen notification. Dead hardcore random bots stay online
+for 60 seconds, then log out and are replaced by the normal playerbot random
+pool logic. GM level 1+ accounts can mark an online bot:
+
+```text
+.hardcore bot <botName> confirm
+```
 
 Use the friend boost command to catch up an online real player to the
 group's current level with generated bot-style gear and supplies:

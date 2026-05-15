@@ -182,6 +182,11 @@ void ScriptMgr::OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE, script->OnPlayerBeforeSendChatMessage(player, type, lang, msg));
 }
 
+void ScriptMgr::OnPlayerCustomizeNameQuery(ObjectGuid guid, std::string& name)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_CUSTOMIZE_NAME_QUERY, script->OnPlayerCustomizeNameQuery(guid, name));
+}
+
 void ScriptMgr::OnPlayerEmote(Player* player, uint32 emote)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_EMOTE, script->OnPlayerEmote(player, emote));

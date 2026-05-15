@@ -9,7 +9,6 @@ cd C:\Users\Buddy\Documents\wow-ai-server\azerothcore-wotlk
 git clone https://github.com/mod-playerbots/mod-playerbots.git modules/mod-playerbots
 git clone https://github.com/DustinHendrickson/mod-ollama-chat.git modules/mod-ollama-chat
 git clone https://github.com/ZhengPeiRu21/mod-individual-progression.git modules/mod-individual-progression
-git clone https://github.com/ZhengPeiRu21/mod-challenge-modes.git modules/mod-challenge-modes
 git clone https://github.com/NathanHandley/mod-ah-bot.git modules/mod-ah-bot-plus
 git clone https://github.com/azerothcore/mod-aoe-loot.git modules/mod-aoe-loot
 ```
@@ -20,7 +19,6 @@ Current tested commits:
 mod-playerbots             531282e4beb0a5abea6332479f8720518a89b1a2
 mod-ollama-chat            8ba5e791f0a84ee04636f0b19b62d3c4aff3dce1
 mod-individual-progression 822b53028853b7e93b6cfce2056b8b9a9ccc3589
-mod-challenge-modes        1930525b9530d329cb9fe0504a3c9b5b40a12261
 mod-ah-bot-plus            1822d96072a5168a775551fa5017ec947c9fbf7b
 mod-aoe-loot               2ddf6ff75bdbfee3c81f2c149a07126f1d0bf200
 ```
@@ -31,7 +29,6 @@ Pin exact versions with:
 git -C modules/mod-playerbots checkout 531282e4beb0a5abea6332479f8720518a89b1a2
 git -C modules/mod-ollama-chat checkout 8ba5e791f0a84ee04636f0b19b62d3c4aff3dce1
 git -C modules/mod-individual-progression checkout 822b53028853b7e93b6cfce2056b8b9a9ccc3589
-git -C modules/mod-challenge-modes checkout 1930525b9530d329cb9fe0504a3c9b5b40a12261
 git -C modules/mod-ah-bot-plus checkout 1822d96072a5168a775551fa5017ec947c9fbf7b
 git -C modules/mod-aoe-loot checkout 2ddf6ff75bdbfee3c81f2c149a07126f1d0bf200
 ```
@@ -44,7 +41,7 @@ Current host config is intended to be:
 Playerbots: 250 random bots
 XP: 1.2x
 Progression: Vanilla phase 1
-Hardcore: enabled
+Hardcore: command opt-in, with 25% random playerbot opt-in
 AOE loot: enabled
 Auction House bot: enabled, healthy stock target
 LLM whispers: enabled through wow-llm-bridge
@@ -64,7 +61,7 @@ mod_ahbot.conf
 mod_aoe_loot.conf
 mod_ollama_chat.conf
 individualProgression.conf
-challenge_modes.conf
+hardcore.conf
 playerbots.conf
 ```
 

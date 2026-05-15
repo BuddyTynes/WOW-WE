@@ -98,7 +98,8 @@ The modules cloned into `modules/` are usually upstream/external repositories
 and are ignored by the top-level repo. Do not make project-specific feature
 changes directly inside cloned modules unless explicitly asked. For shareable
 local behavior, create a new repo-owned companion module such as
-`modules/mod-friend-boost` and add a narrow `.gitignore` exception for it. This
+`modules/mod-friend-boost` or `modules/mod-hardcore` and add a narrow
+`.gitignore` exception for it. This
 keeps upstream modules clean so they can be updated or recloned across machines
 without losing project changes.
 

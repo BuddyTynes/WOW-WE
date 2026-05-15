@@ -62,8 +62,6 @@ AC_AI_PLAYERBOT_RANDOM_BOTS_PER_INTERVAL: "20"
 Module settings in `docker-compose.override.yml`:
 
 ```yaml
-AC_CHALLENGE_MODES_ENABLE: "1"
-AC_HARDCORE_ENABLE: "1"
 AC_INDIVIDUAL_PROGRESSION_ENABLE: "1"
 AC_INDIVIDUAL_PROGRESSION_PROGRESSION_LIMIT: "${WOW_INDIVIDUAL_PROGRESSION_LIMIT:-1}"
 AC_INDIVIDUAL_PROGRESSION_DISABLE_DEFAULT_PROGRESSION: "${WOW_INDIVIDUAL_PROGRESSION_DISABLE_DEFAULT:-1}"
@@ -72,7 +70,7 @@ AC_INDIVIDUAL_PROGRESSION_DISABLE_DEFAULT_PROGRESSION: "${WOW_INDIVIDUAL_PROGRES
 The config files also exist on the host:
 
 ```text
-env\dist\etc\modules\challenge_modes.conf
+env\dist\etc\modules\hardcore.conf
 env\dist\etc\modules\individualProgression.conf
 env\dist\etc\modules\mod_ahbot.conf
 env\dist\etc\modules\mod_aoe_loot.conf
@@ -103,6 +101,8 @@ AOELoot.Range = 70.0
 OllamaChat.Enable = 1
 OllamaChat.Url = http://wow-llm-bridge:11434/api/generate
 OllamaChat.EnableWhisperReplies = 1
+Hardcore.Enable = 1
+Hardcore.RandomBotChance = 25
 ```
 
 ## What Was Installed
@@ -111,25 +111,12 @@ Modules cloned under `modules`:
 
 ```text
 modules\mod-individual-progression
-modules\mod-challenge-modes
 modules\mod-ah-bot-plus
 modules\mod-aoe-loot
 modules\mod-ollama-chat
 modules\mod-playerbots
-```
-
-`mod-challenge-modes` is being used for Hardcore because it includes the Hardcore mode.
-
-Compatibility patch applied in:
-
-```text
-modules\mod-challenge-modes\src\ChallengeModes.cpp
-```
-
-The `OnPlayerResurrect` hook needed `bool&` on this AzerothCore branch:
-
-```cpp
-void OnPlayerResurrect(Player* player, float /*restore_percent*/, bool& /*applySickness*/) override
+modules\mod-friend-boost
+modules\mod-hardcore
 ```
 
 ## Dockerfile Changes That Matter
