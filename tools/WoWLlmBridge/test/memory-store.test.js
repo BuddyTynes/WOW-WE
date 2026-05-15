@@ -67,3 +67,40 @@ test("MemoryStore validates memory writes", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "invalid_request");
 });
+
+test("MemoryStore decides and caches bot guild invites from likeability", async () => {
+  const store = new MemoryStore({ dbPath: tempDb() });
+  await store.init();
+
+  const originalRandom = Math.random;
+  Math.random = () => 0.24;
+  try {
+    const first = await store.decideBotGuildInvite({
+      cache_ttl_seconds: 3600,
+      default_likeability: 50,
+      bot: { guid: 11, name: "Grimtok", race: "Orc", class: "Warrior", level: 30 },
+      inviter: { guid: 99, account_id: 1, name: "Buddy", race: "Human", class: "Paladin", level: 30 },
+      guild: { id: 42, name: "Tiny Problems", member_count: 3 }
+    });
+
+    assert.equal(first.ok, true);
+    assert.equal(first.data.decision, "accept");
+    assert.equal(first.data.likeability, 50);
+    assert.equal(first.data.cached, false);
+
+    Math.random = () => 0.99;
+    const cached = await store.decideBotGuildInvite({
+      cache_ttl_seconds: 3600,
+      default_likeability: 50,
+      bot: { guid: 11, name: "Grimtok" },
+      inviter: { guid: 99, name: "Buddy" },
+      guild: { id: 42, name: "Tiny Problems" }
+    });
+
+    assert.equal(cached.ok, true);
+    assert.equal(cached.data.decision, "accept");
+    assert.equal(cached.data.cached, true);
+  } finally {
+    Math.random = originalRandom;
+  }
+});

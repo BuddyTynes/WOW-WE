@@ -198,6 +198,14 @@ if (Test-Path $hardcoreSource) {
     Write-Warning "Could not find $hardcoreSource."
 }
 
+$smallGroupSource = Join-Path $root "modules\mod-small-group-tweaks\conf\small_group_tweaks.conf.dist"
+$smallGroupTarget = Join-Path $moduleConfigDir "small_group_tweaks.conf"
+if (Test-Path $smallGroupSource) {
+    Copy-Item -LiteralPath $smallGroupSource -Destination $smallGroupTarget -Force
+} else {
+    Write-Warning "Could not find $smallGroupSource."
+}
+
 $llmDirectorSource = Join-Path $root "modules\mod-llm-npc-director\conf\llm_npc_director.conf.dist"
 $llmDirectorTarget = Join-Path $moduleConfigDir "llm_npc_director.conf"
 if (Test-Path $llmDirectorSource) {

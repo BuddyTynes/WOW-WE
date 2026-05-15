@@ -132,6 +132,21 @@ function rowToRelationship(row) {
   };
 }
 
+function rowToBotGuildInviteDecision(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    decision_id: row.decision_id,
+    decision: row.decision,
+    say: row.say || "",
+    likeability: asInt(row.likeability) || 0,
+    reason: row.reason || "",
+    expires_at: row.expires_at,
+    cached: true
+  };
+}
+
 function rowToMemory(row) {
   return {
     memory_id: row.memory_id,
@@ -325,6 +340,126 @@ class MemoryStore {
       WHERE bot_guid = ${sqlLiteral(input.bot_guid)} AND player_guid = ${sqlLiteral(input.player_guid)};
     `);
     return this.getRelationship(input);
+  }
+
+  async decideBotGuildInvite(input) {
+    await this.ensureReady();
+    const bot = input.bot || {};
+    const inviter = input.inviter || {};
+    const guild = input.guild || {};
+    const botGuid = asInt(bot.guid || bot.bot_guid);
+    const inviterGuid = asInt(inviter.guid || inviter.player_guid);
+    const guildId = asInt(guild.id || guild.guild_id);
+
+    if (!botGuid || !inviterGuid || !guildId) {
+      return fail("invalid_request", "bot.guid, inviter.guid, and guild.id are required");
+    }
+
+    const cached = rowToBotGuildInviteDecision(await this.db.get(`
+      SELECT *
+      FROM bot_guild_invite_decisions
+      WHERE bot_guid = ? AND inviter_guid = ? AND guild_id = ?
+        AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      ORDER BY updated_at DESC
+      LIMIT 1;
+    `, [botGuid, inviterGuid, guildId]));
+    if (cached) {
+      await this.recordEvent({
+        event_kind: "system",
+        channel_type: "system",
+        scope_type: "bot_player",
+        scope_id: `bot:${botGuid}/player:${inviterGuid}`,
+        bot_guid: botGuid,
+        player_guid: inviterGuid,
+        guild_id: guildId,
+        source: "bot-guild-invite",
+        direction: "internal",
+        intent: cached.decision,
+        text: cached.say,
+        payload: { cached: true, likeability: cached.likeability, reason: cached.reason }
+      });
+      return ok(cached);
+    }
+
+    await this.upsertBotProfile({
+      bot_guid: botGuid,
+      name: bot.name || `Bot ${botGuid}`,
+      race: bot.race,
+      class: bot.class,
+      tier: bot.tier || 2,
+      enabled: true,
+      metadata: {
+        level: asInt(bot.level),
+        current_guild_id: asInt(bot.current_guild_id),
+        current_guild_name: bot.current_guild_name || ""
+      }
+    });
+    await this.upsertPlayerProfile({
+      player_guid: inviterGuid,
+      account_id: asInt(inviter.account_id),
+      name: inviter.name || `Player ${inviterGuid}`,
+      metadata: {
+        race: inviter.race,
+        class: inviter.class,
+        level: asInt(inviter.level)
+      }
+    });
+
+    const existingRelationship = await this.getRelationship({ bot_guid: botGuid, player_guid: inviterGuid });
+    await this.touchRelationship({ bot_guid: botGuid, player_guid: inviterGuid });
+    const defaultLikeability = clamp(input.default_likeability, 0, 100, 50);
+    const affinity = existingRelationship.ok ? asInt(existingRelationship.data.affinity) : null;
+    const likeability = affinity === null
+      ? defaultLikeability
+      : Math.round((Math.min(100, Math.max(-100, affinity)) + 100) / 2);
+    const roll = Math.floor(Math.random() * 100) + 1;
+    const accepted = roll <= likeability;
+    const decision = accepted ? "accept" : "decline";
+    const botName = bot.name || "The bot";
+    const guildName = guild.name || "the guild";
+    const say = accepted
+      ? `Sure, ${guildName} sounds interesting.`
+      : `Not right now. Ask me again later.`;
+    const ttlSeconds = Math.max(60, Math.min(86400, asInt(input.cache_ttl_seconds) || 3600));
+    const decisionId = randomId("bgi");
+    const reason = `likeability ${likeability}, roll ${roll}`;
+
+    await this.db.exec(`
+      INSERT INTO bot_guild_invite_decisions (
+        decision_id, bot_guid, inviter_guid, guild_id, decision, say,
+        likeability, reason, expires_at
+      ) VALUES (
+        ${sqlLiteral(decisionId)}, ${sqlLiteral(botGuid)}, ${sqlLiteral(inviterGuid)},
+        ${sqlLiteral(guildId)}, ${sqlLiteral(decision)}, ${sqlLiteral(say)},
+        ${sqlLiteral(likeability)}, ${sqlLiteral(reason)},
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+${ttlSeconds} seconds')
+      );
+    `);
+
+    await this.recordEvent({
+      event_kind: "system",
+      channel_type: "system",
+      scope_type: "bot_player",
+      scope_id: `bot:${botGuid}/player:${inviterGuid}`,
+      bot_guid: botGuid,
+      player_guid: inviterGuid,
+      guild_id: guildId,
+      source: "bot-guild-invite",
+      direction: "internal",
+      intent: decision,
+      text: `${botName} ${accepted ? "accepted" : "declined"} guild invite to ${guildName}.`,
+      payload: { cached: false, likeability, roll, reason }
+    });
+
+    return ok({
+      decision_id: decisionId,
+      decision,
+      say,
+      likeability,
+      reason,
+      expires_at: null,
+      cached: false
+    });
   }
 
   async searchMemories(input) {

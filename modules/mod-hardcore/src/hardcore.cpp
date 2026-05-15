@@ -5,14 +5,17 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "Config.h"
+#include "Creature.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
+#include "ObjectAccessor.h"
 #include "ObjectGuid.h"
 #include "Opcodes.h"
 #include "Player.h"
 #include "Random.h"
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
+#include "Unit.h"
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
@@ -46,6 +49,9 @@ struct HardcoreState
     bool enabled = false;
     bool dead = false;
     std::string source;
+    std::string createdAt;
+    std::string deadAt;
+    std::string evaluatedAt;
 };
 
 char const* ToDbSource(HardcoreSource source)
@@ -81,6 +87,8 @@ public:
         randomBotEnable = sConfigMgr->GetOption<bool>("Hardcore.RandomBotEnable", true);
         randomBotChance = std::clamp<uint32>(
             sConfigMgr->GetOption<uint32>("Hardcore.RandomBotChance", 25), 0, 100);
+        randomBotConvertFailedRolls =
+            sConfigMgr->GetOption<bool>("Hardcore.RandomBotConvertFailedRolls", false);
         botCommandSecurity = std::clamp<uint32>(
             sConfigMgr->GetOption<uint32>("Hardcore.BotCommandSecurity", 1),
             uint32(SEC_PLAYER), uint32(SEC_ADMINISTRATOR));
@@ -108,7 +116,8 @@ public:
 
         HardcoreState state;
         QueryResult result = CharacterDatabase.Query(
-            "SELECT `enabled`, `dead`, `source` "
+            "SELECT `enabled`, `dead`, `source`, `created_at`, `dead_at`, "
+            "`evaluated_at` "
             "FROM `mod_hardcore_characters` WHERE `guid` = {}",
             guid);
 
@@ -119,6 +128,9 @@ public:
             state.enabled = fields[0].Get<uint8>() != 0;
             state.dead = fields[1].Get<uint8>() != 0;
             state.source = fields[2].Get<std::string>();
+            state.createdAt = fields[3].IsNull() ? "" : fields[3].Get<std::string>();
+            state.deadAt = fields[4].IsNull() ? "" : fields[4].Get<std::string>();
+            state.evaluatedAt = fields[5].IsNull() ? "" : fields[5].Get<std::string>();
         }
 
         states[guid] = state;
@@ -145,6 +157,9 @@ public:
         state.enabled = true;
         state.dead = false;
         state.source = ToDbSource(source);
+        state.createdAt.clear();
+        state.deadAt.clear();
+        state.evaluatedAt.clear();
         states[guid] = state;
 
         ApplyAuraState(player);
@@ -170,6 +185,9 @@ public:
         state.enabled = false;
         state.dead = false;
         state.source = ToDbSource(HardcoreSource::RandomBotRollFailed);
+        state.createdAt.clear();
+        state.deadAt.clear();
+        state.evaluatedAt.clear();
         states[guid] = state;
     }
 
@@ -191,9 +209,11 @@ public:
 
         state.exists = true;
         state.dead = true;
+        state.deadAt.clear();
         states[guid] = state;
         ApplyAuraState(player);
-        AnnounceDeath(player);
+        std::string cause = TakePendingDeathCause(guid);
+        AnnounceDeath(player, cause);
 
 #ifdef MOD_PLAYERBOTS
         if (sRandomPlayerbotMgr.IsRandomBot(player))
@@ -210,7 +230,12 @@ public:
 
         HardcoreState state = GetState(player);
         if (state.exists)
+        {
+            if (randomBotConvertFailedRolls && !state.enabled &&
+                state.source == ToDbSource(HardcoreSource::RandomBotRollFailed))
+                EnableHardcore(player, HardcoreSource::RandomBot);
             return;
+        }
 
 #ifdef MOD_PLAYERBOTS
         if (!sRandomPlayerbotMgr.IsRandomBot(player))
@@ -280,18 +305,86 @@ public:
 
     void AnnounceDeath(Player* player)
     {
+        AnnounceDeath(player, "");
+    }
+
+    void AnnounceDeath(Player* player, std::string const& cause)
+    {
         if (!deathAnnouncementEnable || !player)
             return;
 
-        std::string message = Acore::StringFormat(
-            "<HC> {} died at level {} in {}.", player->GetName(),
-            player->GetLevel(), GetLocationName(player));
+        std::string message;
+        if (cause.empty())
+            message = Acore::StringFormat("<HC> {} died at level {} in {}.",
+                player->GetName(), player->GetLevel(), GetLocationName(player));
+        else
+            message = Acore::StringFormat("<HC> {} died at level {} in {}, {}.",
+                player->GetName(), player->GetLevel(), GetLocationName(player),
+                cause);
 
         sWorldSessionMgr->SendServerMessage(SERVER_MSG_STRING, message);
 
         WorldPacket notification(SMSG_NOTIFICATION, message.size() + 1);
         notification << message;
         sWorldSessionMgr->SendGlobalMessage(&notification);
+    }
+
+    void RecordPendingDeathCause(Player* player, std::string cause)
+    {
+        if (!enabled || !player || cause.empty())
+            return;
+
+        pendingDeathCauses[player->GetGUID().GetCounter()] = std::move(cause);
+    }
+
+    std::string TakePendingDeathCause(ObjectGuid::LowType guid)
+    {
+        auto itr = pendingDeathCauses.find(guid);
+        if (itr == pendingDeathCauses.end())
+            return "";
+
+        std::string cause = std::move(itr->second);
+        pendingDeathCauses.erase(itr);
+        return cause;
+    }
+
+    std::string EnvironmentalCause(uint8 type) const
+    {
+        switch (type)
+        {
+            case DAMAGE_EXHAUSTED:
+                return "died of fatigue";
+            case DAMAGE_DROWNING:
+                return "drowned";
+            case DAMAGE_FALL:
+                return "fell to their death";
+            case DAMAGE_LAVA:
+                return "burned in lava";
+            case DAMAGE_SLIME:
+                return "died in slime";
+            case DAMAGE_FIRE:
+                return "burned to death";
+            case DAMAGE_FALL_TO_VOID:
+                return "fell into the void";
+            default:
+                return "died to environmental damage";
+        }
+    }
+
+    uint32 EnableAllOnlineRandomBots()
+    {
+        uint32 enabledCount = 0;
+#ifdef MOD_PLAYERBOTS
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            if (!player || !player->IsAlive() || !sRandomPlayerbotMgr.IsRandomBot(player))
+                continue;
+
+            if (EnableHardcore(player, HardcoreSource::RandomBot))
+                ++enabledCount;
+        }
+#endif
+        return enabledCount;
     }
 
     std::string GetLocationName(Player* player) const
@@ -392,6 +485,7 @@ public:
         ObjectGuid::LowType guid = player->GetGUID().GetCounter();
         auraTimers.erase(guid);
         botLogoutTimers.erase(guid);
+        pendingDeathCauses.erase(guid);
     }
 
     bool ShouldCheckAura(Player const* player, uint32 diff)
@@ -411,6 +505,7 @@ private:
     uint32 auraSpellId = 21090;
     bool randomBotEnable = true;
     uint32 randomBotChance = 25;
+    bool randomBotConvertFailedRolls = false;
     uint32 botCommandSecurity = SEC_MODERATOR;
     bool nameTagEnable = true;
     std::string nameTag = "<HC>";
@@ -419,6 +514,7 @@ private:
     std::unordered_map<ObjectGuid::LowType, HardcoreState> states;
     std::unordered_map<ObjectGuid::LowType, uint32> auraTimers;
     std::unordered_map<ObjectGuid::LowType, uint32> botLogoutTimers;
+    std::unordered_map<ObjectGuid::LowType, std::string> pendingDeathCauses;
 };
 
 #define sHardcore HardcoreMgr::instance()
@@ -543,9 +639,45 @@ public:
         return sHardcore.CanResurrect(player);
     }
 
+    void OnPlayerEnvironmentalDamage(Player* player, uint8 type, uint32 damage) override
+    {
+        if (!player || damage < player->GetHealth())
+            return;
+
+        sHardcore.RecordPendingDeathCause(player, sHardcore.EnvironmentalCause(type));
+    }
+
     void OnPlayerCustomizeNameQuery(ObjectGuid guid, std::string& name) override
     {
         sHardcore.CustomizeNameTag(guid, name);
+    }
+};
+
+class hardcore_unitscript : public UnitScript
+{
+public:
+    hardcore_unitscript() : UnitScript("hardcore_unitscript") { }
+
+    void OnDamage(Unit* attacker, Unit* victim, uint32& damage) override
+    {
+        if (!attacker || !victim || attacker == victim || damage < victim->GetHealth())
+            return;
+
+        Player* player = victim->ToPlayer();
+        if (!player)
+            return;
+
+        if (Player* killerPlayer = attacker->GetCharmerOrOwnerPlayerOrPlayerItself())
+        {
+            if (killerPlayer != player)
+                sHardcore.RecordPendingDeathCause(player,
+                    Acore::StringFormat("killed by {}", killerPlayer->GetName()));
+            return;
+        }
+
+        if (Creature* creature = attacker->ToCreature())
+            sHardcore.RecordPendingDeathCause(player,
+                Acore::StringFormat("killed by {}", creature->GetName()));
     }
 };
 
@@ -556,11 +688,18 @@ public:
 
     ChatCommandTable GetCommands() const override
     {
+        static ChatCommandTable hardcoreBotsCommandTable =
+        {
+            { "enableall", HandleBotsEnableAllCommand, SEC_PLAYER, Console::No }
+        };
+
         static ChatCommandTable hardcoreCommandTable =
         {
             { "enable", HandleEnableCommand, SEC_PLAYER, Console::No },
             { "status", HandleStatusCommand, SEC_PLAYER, Console::No },
+            { "lookup", HandleLookupCommand, SEC_PLAYER, Console::No },
             { "bot", HandleBotCommand, SEC_PLAYER, Console::No },
+            { "bots", hardcoreBotsCommandTable },
             { "", HandleStatusCommand, SEC_PLAYER, Console::No }
         };
 
@@ -576,6 +715,29 @@ public:
     {
         if (Player* player = handler->GetPlayer())
             SendStatus(handler, player);
+
+        return true;
+    }
+
+    static bool HandleLookupCommand(ChatHandler* handler, PlayerIdentifier target)
+    {
+        HardcoreState state = sHardcore.GetState(target.GetGUID().GetCounter());
+
+        if (!state.exists || !state.enabled)
+        {
+            handler->PSendSysMessage("{} is not hardcore.", target.GetName());
+            return true;
+        }
+
+        handler->PSendSysMessage("{} is hardcore and {}. Source: {}.",
+            target.GetName(), state.dead ? "dead" : "alive", state.source);
+
+        if (!state.createdAt.empty())
+            handler->PSendSysMessage("Created: {}", state.createdAt);
+        if (!state.evaluatedAt.empty())
+            handler->PSendSysMessage("Evaluated: {}", state.evaluatedAt);
+        if (!state.deadAt.empty())
+            handler->PSendSysMessage("Died: {}", state.deadAt);
 
         return true;
     }
@@ -679,6 +841,41 @@ public:
 
         return true;
     }
+
+    static bool HandleBotsEnableAllCommand(ChatHandler* handler, Tail args)
+    {
+        if (!sHardcore.IsEnabled())
+        {
+            handler->PSendSysMessage("Hardcore mode is disabled.");
+            return true;
+        }
+
+        WorldSession* session = handler->GetSession();
+        if (!session ||
+            session->GetSecurity() < sHardcore.GetBotCommandSecurity())
+        {
+            handler->PSendSysMessage(
+                "You do not have permission to mark bots as hardcore.");
+            return true;
+        }
+
+        if (!IsConfirm(args))
+        {
+            handler->PSendSysMessage(
+                "Usage: .hardcore bots enableall confirm");
+            return true;
+        }
+
+#ifdef MOD_PLAYERBOTS
+        uint32 count = sHardcore.EnableAllOnlineRandomBots();
+        handler->PSendSysMessage("Marked {} online random bots as hardcore.",
+            count);
+#else
+        handler->PSendSysMessage("Playerbots are not available in this build.");
+#endif
+
+        return true;
+    }
 };
 }
 
@@ -686,5 +883,6 @@ void Addmod_hardcoreScripts()
 {
     new hardcore_worldscript();
     new hardcore_playerscript();
+    new hardcore_unitscript();
     new hardcore_commandscript();
 }

@@ -948,6 +948,14 @@ function createBridge(config = loadConfig()) {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/bot-guild-invite/decision") {
+      await memoryReady;
+      const body = await readJson(req, 128 * 1024);
+      const result = await store.decideBotGuildInvite(body);
+      sendJson(res, result.ok ? 200 : 400, result.ok ? result.data : result);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname.startsWith("/api/memory/")) {
       await handleMemoryApi(req, res, url.pathname.slice("/api/memory/".length));
       return;

@@ -1,0 +1,16 @@
+#
+# Small-group realm quality-of-life helpers
+#
+
+[worldserver]
+
+#
+# Allow real players to guild-invite online playerbots. The bridge decides
+# whether the bot accepts, using relationship/likeability data when available.
+#
+SmallGroup.BotGuildInvite.Enable = 1
+SmallGroup.BotGuildInvite.DecisionUrl = http://wow-llm-bridge:11434/api/bot-guild-invite/decision
+SmallGroup.BotGuildInvite.TimeoutMs = 3000
+SmallGroup.BotGuildInvite.DecisionCacheSeconds = 3600
+SmallGroup.BotGuildInvite.FallbackMode = decline
+SmallGroup.BotGuildInvite.DefaultLikeability = 50

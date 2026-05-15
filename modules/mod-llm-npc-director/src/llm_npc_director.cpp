@@ -6,6 +6,7 @@
 #include "Channel.h"
 #include "ChannelMgr.h"
 #include "Chat.h"
+#include "Creature.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
@@ -20,6 +21,7 @@
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "Timer.h"
+#include "Unit.h"
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSessionMgr.h"
@@ -135,10 +137,12 @@ std::mutex g_configMutex;
 std::mutex g_cooldownMutex;
 std::mutex g_batchMutex;
 std::mutex g_actionQueueMutex;
+std::mutex g_deathCauseMutex;
 std::unordered_map<std::string, uint32> g_lastForwardMs;
 std::unordered_map<std::string, uint32> g_lastRouteMs;
 std::unordered_map<std::string, PendingChatBatch> g_pendingBatches;
 std::deque<DirectorAction> g_actionQueue;
+std::unordered_map<ObjectGuid::LowType, std::string> g_pendingDeathCauses;
 
 bool IsBot(Player* player)
 {
@@ -235,13 +239,61 @@ std::string GetLocationName(Player* player)
     return "somewhere";
 }
 
+std::string EnvironmentalCause(uint8 type)
+{
+    switch (type)
+    {
+        case DAMAGE_EXHAUSTED:
+            return "died of fatigue";
+        case DAMAGE_DROWNING:
+            return "drowned";
+        case DAMAGE_FALL:
+            return "fell to their death";
+        case DAMAGE_LAVA:
+            return "burned in lava";
+        case DAMAGE_SLIME:
+            return "died in slime";
+        case DAMAGE_FIRE:
+            return "burned to death";
+        case DAMAGE_FALL_TO_VOID:
+            return "fell into the void";
+        default:
+            return "died to environmental damage";
+    }
+}
+
+void RecordPendingDeathCause(Player* player, std::string cause)
+{
+    if (!player || cause.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(g_deathCauseMutex);
+    g_pendingDeathCauses[player->GetGUID().GetCounter()] = std::move(cause);
+}
+
+std::string TakePendingDeathCause(Player* player)
+{
+    if (!player)
+        return "";
+
+    std::lock_guard<std::mutex> lock(g_deathCauseMutex);
+    auto itr = g_pendingDeathCauses.find(player->GetGUID().GetCounter());
+    if (itr == g_pendingDeathCauses.end())
+        return "";
+
+    std::string cause = std::move(itr->second);
+    g_pendingDeathCauses.erase(itr);
+    return cause;
+}
+
 bool IsHardcoreCharacter(Player* player)
 {
     if (!player)
         return false;
 
     QueryResult result = CharacterDatabase.Query(
-        "SELECT `dead` FROM `mod_hardcore_characters` WHERE `guid` = {}",
+        "SELECT `dead` FROM `mod_hardcore_characters` "
+        "WHERE `guid` = {} AND `enabled` = 1",
         player->GetGUID().GetCounter());
 
     return !!result;
@@ -1201,14 +1253,57 @@ public:
         if (ShouldThrottle("death:" + std::string(player->GetName()), config.deathCooldownMs))
             return;
 
+        std::string cause = TakePendingDeathCause(player);
+        std::string deathMessage = cause.empty()
+            ? Acore::StringFormat("<HC> {} died at level {} in {}.",
+                player->GetName(), player->GetLevel(), GetLocationName(player))
+            : Acore::StringFormat("<HC> {} died at level {} in {}, {}.",
+                player->GetName(), player->GetLevel(), GetLocationName(player), cause);
+
         ChatEvent event = BaseEvent(player, CHAT_MSG_CHANNEL, LANG_UNIVERSAL,
-            Acore::StringFormat("<HC> {} died at level {} in {}.", player->GetName(), player->GetLevel(), GetLocationName(player)));
+            deathMessage);
         event.eventType = "hardcore_death";
         event.channel = "world";
         event.scopeId = StableStringId(config.worldChannelName);
         event.scopeName = config.worldChannelName;
         event.scope = std::move(snapshot);
         ForwardEvent(std::move(event));
+    }
+
+    void OnPlayerEnvironmentalDamage(Player* player, uint8 type, uint32 damage) override
+    {
+        if (!player || damage < player->GetHealth())
+            return;
+
+        RecordPendingDeathCause(player, EnvironmentalCause(type));
+    }
+};
+
+class llm_npc_director_unitscript : public UnitScript
+{
+public:
+    llm_npc_director_unitscript() : UnitScript("llm_npc_director_unitscript") { }
+
+    void OnDamage(Unit* attacker, Unit* victim, uint32& damage) override
+    {
+        if (!attacker || !victim || attacker == victim || damage < victim->GetHealth())
+            return;
+
+        Player* player = victim->ToPlayer();
+        if (!player)
+            return;
+
+        if (Player* killerPlayer = attacker->GetCharmerOrOwnerPlayerOrPlayerItself())
+        {
+            if (killerPlayer != player)
+                RecordPendingDeathCause(player,
+                    Acore::StringFormat("killed by {}", killerPlayer->GetName()));
+            return;
+        }
+
+        if (Creature* creature = attacker->ToCreature())
+            RecordPendingDeathCause(player,
+                Acore::StringFormat("killed by {}", creature->GetName()));
     }
 };
 }
@@ -1217,4 +1312,5 @@ void Addmod_llm_npc_directorScripts()
 {
     new llm_npc_director_worldscript();
     new llm_npc_director_playerscript();
+    new llm_npc_director_unitscript();
 }

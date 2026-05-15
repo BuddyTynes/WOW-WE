@@ -795,6 +795,7 @@ uint32 Player::EnvironmentalDamage(EnviromentalDamage type, uint32 damage)
     }
 
     Unit::DealDamageMods(this, damage, &absorb);
+    sScriptMgr->OnPlayerEnvironmentalDamage(this, uint8(type), damage);
 
     WorldPackets::CombatLog::EnvironmentalDamageLog packet;
     packet.Victim = GetGUID();

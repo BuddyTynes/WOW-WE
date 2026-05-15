@@ -42,7 +42,7 @@ Playerbots: 250 random bots
 XP: 1.2x
 Progression: Vanilla phase 1
 Hardcore: command opt-in, with 25% random playerbot opt-in
-Small-group tweaks: .online real-player list and all primary profession slots
+Small-group tweaks: .online real-player list, all primary profession slots, and LLM-decided playerbot guild invites
 AOE loot: enabled
 Auction House bot: enabled, healthy stock target
 LLM whispers: enabled through wow-llm-bridge
@@ -65,6 +65,7 @@ mod_aoe_loot.conf
 mod_ollama_chat.conf
 individualProgression.conf
 hardcore.conf
+small_group_tweaks.conf
 llm_npc_director.conf
 playerbots.conf
 ```

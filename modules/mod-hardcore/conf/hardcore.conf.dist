@@ -30,6 +30,12 @@ Hardcore.RandomBotEnable = 1
 Hardcore.RandomBotChance = 25
 
 #
+# If enabled, random bots that previously failed their one-time hardcore roll
+# are converted to hardcore on future login/map evaluation.
+#
+Hardcore.RandomBotConvertFailedRolls = 0
+
+#
 # Broadcast an on-screen and chat announcement when a hardcore character dies.
 #
 Hardcore.DeathAnnouncement.Enable = 1

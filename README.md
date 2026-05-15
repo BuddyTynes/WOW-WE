@@ -30,6 +30,7 @@ AOE loot: enabled
 Auction House bot: enabled
 LLM whispers: enabled
 LLM guild/party director: enabled through wow-llm-bridge
+LLM playerbot guild invite decisions: enabled
 Name/chat profanity: server-side name checks disabled; client chat filter may still be local
 ```
 

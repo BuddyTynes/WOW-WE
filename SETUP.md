@@ -72,16 +72,58 @@ The Compose override expects the tracked bridge source at:
 .\tools\WoWLlmBridge
 ```
 
-That folder needs its own `.env` containing the API key and provider settings. Do not commit that file.
+That folder needs its own `.env` containing provider settings. Do not commit
+that file.
 
 ```powershell
 Copy-Item .\tools\WoWLlmBridge\.env.example .\tools\WoWLlmBridge\.env
 ```
 
+The default `.env.example` is set up for the free local llama.cpp path. Run a
+llama.cpp OpenAI-compatible server on the Windows host, reachable from Docker
+at:
+
+```text
+http://host.docker.internal:8088/v1
+```
+
+Recommended starting llama.cpp settings for the local 8 GB RTX 3060 Ti target:
+
+```text
+--host 0.0.0.0
+--port 8088
+--model <path-to-gemma-3n-E2B-it-Q4_K_M.gguf>
+--ctx-size 4096
+--n-gpu-layers 99
+--batch-size 512
+--ubatch-size 128
+--flash-attn
+```
+
+The bridge `.env` should then contain:
+
+```text
+WOW_LLM_PROVIDER=openai-compatible
+WOW_LLM_MODEL=gemma-3n-E2B-it-Q4_K_M
+WOW_LLM_BASE_URL=http://host.docker.internal:8088/v1
+WOW_LLM_API_KEY=local-llama
+```
+
+`WOW_LLM_API_KEY` only needs a non-empty placeholder for llama.cpp; the local
+server does not use a paid API key.
+
 The worldserver talks to the bridge at:
 
 ```text
 http://wow-llm-bridge:11434/api/generate
+```
+
+Repo-owned modules also use the bridge for director events and playerbot guild
+invite decisions:
+
+```text
+http://wow-llm-bridge:11434/api/director/event
+http://wow-llm-bridge:11434/api/bot-guild-invite/decision
 ```
 
 The host publishes it as:

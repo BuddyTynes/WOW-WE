@@ -219,6 +219,7 @@ enum PlayerHook
     PLAYERHOOK_ON_GET_REPUTATION_PRICE_DISCOUNT,
     PLAYERHOOK_ON_LEARN_TAXI_NODE,
     PLAYERHOOK_ON_BEFORE_GET_LEVEL_FOR_XP_GAIN,
+    PLAYERHOOK_ON_ENVIRONMENTAL_DAMAGE,
     PLAYERHOOK_END
 };
 
@@ -849,6 +850,15 @@ public:
      * @param level The level that should be used for XP gain calculations
      */
     virtual void OnPlayerBeforeGetLevelForXPGain(Player const* /*player*/, uint8& /*level*/) {}
+
+    /**
+     * @brief This hook is called before environmental damage is applied.
+     *
+     * @param player Contains information about the Player
+     * @param type EnviromentalDamage value from Player.h
+     * @param damage Final damage after environmental absorb/resist mods
+     */
+    virtual void OnPlayerEnvironmentalDamage(Player* /*player*/, uint8 /*type*/, uint32 /*damage*/) {}
 };
 
 #endif

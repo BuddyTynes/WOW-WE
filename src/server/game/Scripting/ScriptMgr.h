@@ -315,6 +315,7 @@ public: /* AchievementCriteriaScript */
 
 public: /* PlayerScript */
     void OnPlayerJustDied(Player* player);
+    void OnPlayerEnvironmentalDamage(Player* player, uint8 type, uint32 damage);
     void OnPlayerCalculateTalentsPoints(Player const* player, uint32& talentPointsForLevel);
     void OnPlayerReleasedGhost(Player* player);
     void OnPlayerSendInitialPacketsBeforeAddToMap(Player* player, WorldPacket& data);
@@ -524,6 +525,7 @@ public: /* GuildScript */
                          bool isDestBank, uint8 destContainer, uint8 destSlotId);
     void OnGuildEvent(Guild* guild, uint8 eventType, ObjectGuid::LowType playerGuid1, ObjectGuid::LowType playerGuid2, uint8 newRank);
     void OnGuildBankEvent(Guild* guild, uint8 eventType, uint8 tabId, ObjectGuid::LowType playerGuid, uint32 itemOrMoney, uint16 itemStackCount, uint8 destTabId);
+    bool CanGuildInviteMember(Guild* guild, Player* inviter, Player* invitee, bool& handled);
     bool CanGuildSendBankList(Guild const* guild, WorldSession* session, uint8 tabId, bool sendAllSlots);
 
 public: /* GroupScript */

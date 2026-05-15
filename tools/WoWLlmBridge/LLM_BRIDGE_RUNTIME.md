@@ -37,6 +37,18 @@ POST /api/memory/get_recent_chat
 POST /api/memory/write_conversation_summary
 ```
 
+Bot guild invite decisions are handled by:
+
+```text
+POST /api/bot-guild-invite/decision
+```
+
+The first implementation uses cached bridge-owned relationship affinity as the
+likeability source. Affinity `-100..100` maps to accept chance `0..100`; missing
+relationships use the caller's `default_likeability`. Decisions are cached per
+bot/inviter/guild for the requested TTL, defaulting to one hour from the
+worldserver module config.
+
 Typed memory endpoints return `{ "ok": true, "error": null, "data": ... }` or
 `{ "ok": false, "error": { "code": "...", "message": "..." }, "data": null }`.
 `write_memory` is restricted to callers marked as `bridge`, `admin`, or `debug`
