@@ -1,0 +1,34 @@
+#
+# LLM NPC Director
+#
+
+LLMNpcDirector.Enable = 1
+
+# Ollama-compatible bridge endpoint. The current bridge accepts /api/generate.
+LLMNpcDirector.BridgeUrl = http://wow-llm-bridge:11434/api/generate
+LLMNpcDirector.Model = wow-llm-director
+LLMNpcDirector.HttpTimeoutMs = 6000
+
+# Basic guardrails for the first thin module pass.
+LLMNpcDirector.MaxMessageChars = 700
+LLMNpcDirector.GuildCooldownMs = 3000
+LLMNpcDirector.GroupCooldownMs = 5000
+LLMNpcDirector.ChannelCooldownMs = 20000
+LLMNpcDirector.DeathCooldownMs = 5000
+
+# Route validated bridge say_only JSON responses back through eligible bots on
+# the game thread.
+LLMNpcDirector.RouteSayResponses = 1
+LLMNpcDirector.RouteChannelResponses = 1
+LLMNpcDirector.WorldChatEnable = 1
+LLMNpcDirector.WorldChannelName = World
+LLMNpcDirector.DeathEventsEnable = 1
+
+# Non-chat party intents are parsed and queued, but playerbot action dispatch is
+# intentionally left as a guarded TODO until a safe public API is identified.
+LLMNpcDirector.RoutePartyIntents = 0
+
+# Translate simple party macro calls into existing playerbot chat commands.
+# Examples: "bots skull", "bots cc moon", "bots run", "bots aoe",
+# "ai default marks", "ai follow", "ai stay".
+LLMNpcDirector.RoutePartyControls = 1

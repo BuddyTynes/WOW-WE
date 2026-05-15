@@ -138,29 +138,57 @@ AOELoot.Range = 70.0
 AOELoot.Group = 1
 "@ | Set-Content -LiteralPath (Join-Path $moduleConfigDir "mod_aoe_loot.conf") -NoNewline
 
-@"
-[worldserver]
-OllamaChat.Enable = 1
-OllamaChat.Url = http://wow-llm-bridge:11434/api/generate
-OllamaChat.Model = gpt-5.3-mini
-OllamaChat.EnableWhisperReplies = 1
-OllamaChat.MaxConcurrentQueries = 2
-OllamaChat.NumPredict = 80
-OllamaChat.PlayerReplyChance.Say = 80
-OllamaChat.BotReplyChance.Say = 5
-OllamaChat.PlayerReplyChance.Channel = 40
-OllamaChat.BotReplyChance.Channel = 1
-OllamaChat.PlayerReplyChance.Party = 90
-OllamaChat.BotReplyChance.Party = 5
-OllamaChat.PlayerReplyChance.Guild = 60
-OllamaChat.BotReplyChance.Guild = 2
-OllamaChat.EnableRandomChatter = 1
-OllamaChat.MinRandomInterval = 120
-OllamaChat.MaxRandomInterval = 300
-OllamaChat.RandomChatterMaxBotsPerPlayer = 1
-OllamaChat.EventChatterMaxBotsPerPlayer = 1
-OllamaChat.DisableRepliesInCombat = 1
-"@ | Set-Content -LiteralPath (Join-Path $moduleConfigDir "mod_ollama_chat.conf") -NoNewline
+$ollamaSource = Join-Path $root "modules\mod-ollama-chat\conf\mod_ollama_chat.conf.dist"
+$ollamaTarget = Join-Path $moduleConfigDir "mod_ollama_chat.conf"
+if (Test-Path $ollamaSource) {
+    Copy-Item -LiteralPath $ollamaSource -Destination $ollamaTarget -Force
+    $ollamaValues = [ordered]@{
+        "OllamaChat.Enable" = "1"
+        "OllamaChat.Url" = "http://wow-llm-bridge:11434/api/generate"
+        "OllamaChat.Model" = "gpt-5.3-mini"
+        "OllamaChat.EnableWhisperReplies" = "1"
+        "OllamaChat.MaxConcurrentQueries" = "1"
+        "OllamaChat.NumPredict" = "100"
+        "OllamaChat.PlayerReplyChance.Say" = "80"
+        "OllamaChat.BotReplyChance.Say" = "8"
+        "OllamaChat.PlayerReplyChance.Channel" = "0"
+        "OllamaChat.BotReplyChance.Channel" = "0"
+        "OllamaChat.PlayerReplyChance.Party" = "90"
+        "OllamaChat.BotReplyChance.Party" = "5"
+        "OllamaChat.PlayerReplyChance.Guild" = "0"
+        "OllamaChat.BotReplyChance.Guild" = "0"
+        "OllamaChat.EnableRandomChatter" = "1"
+        "OllamaChat.MinRandomInterval" = "75"
+        "OllamaChat.MaxRandomInterval" = "180"
+        "OllamaChat.RandomChatterMaxBotsPerPlayer" = "1"
+        "OllamaChat.RandomChatterBotCommentChance" = "14"
+        "OllamaChat.EnableEventChatter" = "1"
+        "OllamaChat.EventChatterBotCommentChance" = "70"
+        "OllamaChat.EventChatterBotSelfCommentChance" = "25"
+        "OllamaChat.EventChatterMaxBotsPerPlayer" = "3"
+        "OllamaChat.EventCooldownTime" = "5"
+        "OllamaChat.EventTypeDied_Chance" = "100"
+        "OllamaChat.EnableGuildRandomAmbientChatter" = "0"
+        "OllamaChat.GuildRandomChatterChance" = "0"
+        "OllamaChat.EnableGuildEventChatter" = "0"
+        "OllamaChat.GuildChatterBotCommentChance" = "0"
+        "OllamaChat.GuildChatterMaxBotsPerEvent" = "1"
+        "OllamaChat.DisableRepliesInCombat" = "1"
+        "OllamaChat.DisableForGuild" = "1"
+        "OllamaChat.DisableForCustomChannels" = "1"
+    }
+
+    foreach ($key in $ollamaValues.Keys) {
+        Set-ConfigValue -Path $ollamaTarget -Key $key -Value $ollamaValues[$key]
+    }
+
+    Set-ConfigValue -Path $ollamaTarget -Key "OllamaChat.RandomChatterPromptTemplate" -Value '"You are a Vanilla WoW playerbot. Name: {bot_name}, Level: {bot_level} {bot_class}, {bot_race} {bot_gender}, Faction: {bot_faction}. Location: {bot_area}, Zone: {bot_zone}. Personality: {bot_personality_name}: {bot_personality}. {environment_info} Reply as that character in one short chat line, 4-18 words. No quotes, no markdown, no roleplay narration. Never repeat the prompt. If another bot is being dumb, jab them by name."'
+    Set-ConfigValue -Path $ollamaTarget -Key "OllamaChat.RandomChatterPromptVariations" -Value '"Complain about leveling taking forever.|Brag about a pull you barely survived.|Make fun of another bot''s gear or pathing.|Argue about whether Horde or Alliance has worse players.|Say something suspiciously overconfident before probably dying.|Complain about bag space or repair bills.|Call out a nearby guildmate like you know them.|Start a petty argument about loot rolls.|Talk like world chat is watching.|Make a short roast about someone playing badly."'
+    Set-ConfigValue -Path $ollamaTarget -Key "OllamaChat.RandomChatterQuestionVariations" -Value '"Ask who is actually carrying this guild.|Ask if anyone else saw that awful pull.|Ask why Cumm is always lost.|Ask why Zartorg talks like he invented rage.|Ask who is going to die next.|Ask if anyone has spare bags.|Ask whether this zone is cursed.|Ask who needs help before they faceplant."'
+    Set-ConfigValue -Path $ollamaTarget -Key "OllamaChat.EventChatterPromptTemplate" -Value '"You are {bot_name}, a level {bot_level} {bot_class} in Vanilla WoW. Personality: {bot_personality_name}: {bot_personality}. Event: {actor_name} {event_type} {event_detail}. Reply with one short public chat line. If the event is died or a hardcore death, react like ruthless world chat: short L, rip, skill issue, or a playful roast aimed at {actor_name}. No slurs, no hate, no markdown."'
+} else {
+    Write-Warning "Could not find $ollamaSource. Run scripts\clone-modules.ps1 first."
+}
 
 $hardcoreSource = Join-Path $root "modules\mod-hardcore\conf\hardcore.conf.dist"
 $hardcoreTarget = Join-Path $moduleConfigDir "hardcore.conf"
@@ -168,6 +196,23 @@ if (Test-Path $hardcoreSource) {
     Copy-Item -LiteralPath $hardcoreSource -Destination $hardcoreTarget -Force
 } else {
     Write-Warning "Could not find $hardcoreSource."
+}
+
+$llmDirectorSource = Join-Path $root "modules\mod-llm-npc-director\conf\llm_npc_director.conf.dist"
+$llmDirectorTarget = Join-Path $moduleConfigDir "llm_npc_director.conf"
+if (Test-Path $llmDirectorSource) {
+    Copy-Item -LiteralPath $llmDirectorSource -Destination $llmDirectorTarget -Force
+} else {
+    Write-Warning "Could not find $llmDirectorSource."
+}
+
+$playerbotsTarget = Join-Path $moduleConfigDir "playerbots.conf.dist"
+if (-not (Test-Path $playerbotsTarget)) {
+    $playerbotsTarget = Join-Path $moduleConfigDir "playerbots.conf"
+}
+
+if (Test-Path $playerbotsTarget) {
+    Set-ConfigValue -Path $playerbotsTarget -Key "AiPlayerbot.LootNeedRollLevel" -Value "1"
 }
 
 Write-Host "Host config applied."

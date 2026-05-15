@@ -16,6 +16,8 @@
 !/modules/mod-hardcore/**
 !/modules/mod-small-group-tweaks/
 !/modules/mod-small-group-tweaks/**
+!/modules/mod-llm-npc-director/
+!/modules/mod-llm-npc-director/**
 /build*/
 /var/*
 !/var/build/.gitkeep
@@ -122,6 +124,8 @@ local.properties
 # ==================
 !/modules/mod-friend-boost/
 !/modules/mod-friend-boost/**
+!/modules/mod-llm-npc-director/
+!/modules/mod-llm-npc-director/**
 .cache
 compile_commands.json
 
@@ -129,9 +133,15 @@ compile_commands.json
 *.log
 *.err.log
 overnight-*.status.log
+/logs/
 
 # Keep ad-hoc backups local, but allow the shared testing snapshot.
 /backups/*
 !/backups/README.md
 !/backups/wow-live-db.sql.gz
 !/backups/wow-live-db.sql.gz.part*
+
+# Local LLM bridge runtime state.
+/tools/WoWLlmBridge/.env
+/tools/WoWLlmBridge/data/
+/tools/WoWLlmBridge/node_modules/

@@ -2,13 +2,17 @@ services:
   wow-llm-bridge:
     container_name: wow-llm-bridge
     build:
-      context: ../llm-bridge
+      context: ./tools/WoWLlmBridge
     env_file:
-      - ../llm-bridge/.env
+      - ./tools/WoWLlmBridge/.env
+    environment:
+      WOW_LLM_MEMORY_DB: /app/data/llm_memory.sqlite3
     networks:
       - ac-network
     ports:
       - ${WOW_LLM_BRIDGE_EXTERNAL_PORT:-11435}:11434
+    volumes:
+      - ./tools/WoWLlmBridge/data:/app/data
     restart: unless-stopped
 
   ac-worldserver:

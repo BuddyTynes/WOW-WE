@@ -1,0 +1,17 @@
+{
+  "name": "wow-llm-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ollama-compatible HTTP bridge for AzerothCore mod-ollama-chat using hosted LLM APIs.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "smoke": "node scripts/smoke.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "UNLICENSED"
+}

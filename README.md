@@ -29,6 +29,7 @@ XP: 1.2x
 AOE loot: enabled
 Auction House bot: enabled
 LLM whispers: enabled
+LLM guild/party director: enabled through wow-llm-bridge
 Name/chat profanity: server-side name checks disabled; client chat filter may still be local
 ```
 
@@ -39,6 +40,9 @@ Read these in order:
 1. [SETUP.md](SETUP.md)
 2. [MODULES.md](MODULES.md)
 3. [SERVER_BUILD_RUNBOOK.md](SERVER_BUILD_RUNBOOK.md)
+4. [doc/LLM_NPC_DESIGN.md](doc/LLM_NPC_DESIGN.md)
+5. [doc/LLM_NPC_EXECUTION_PLAN.md](doc/LLM_NPC_EXECUTION_PLAN.md)
+6. [doc/LLM_NPC_MEMORY_MCP_SCHEMA.md](doc/LLM_NPC_MEMORY_MCP_SCHEMA.md)
 
 For this host, the normal startup command is:
 
@@ -52,6 +56,7 @@ For a fresh checkout:
 ```powershell
 Copy-Item .env.example .env
 Copy-Item docker-compose.override.example.yml docker-compose.override.yml
+Copy-Item .\tools\WoWLlmBridge\.env.example .\tools\WoWLlmBridge\.env
 powershell -ExecutionPolicy Bypass -File .\scripts\clone-modules.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\apply-host-config.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\restore-live-db.ps1
@@ -73,7 +78,8 @@ docker-compose.override.yml
 env/dist
 build logs
 Docker volumes
-..\llm-bridge\.env
+tools\WoWLlmBridge\.env
+tools\WoWLlmBridge\data
 ```
 
 Use these tracked examples instead:
@@ -96,6 +102,8 @@ Do not run broad Docker prune/delete commands unless you preserve:
 azerothcore-wotlk_ac-database
 azerothcore-wotlk_ac-client-data
 ```
+
+Live server state is stored in Docker volume `azerothcore-wotlk_ac-database` after restore. Use `scripts\backup-live-db.ps1` if someone needs a fresh portable snapshot.
 
 ## Publishing This Setup
 

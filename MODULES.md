@@ -46,6 +46,7 @@ Small-group tweaks: .online real-player list and all primary profession slots
 AOE loot: enabled
 Auction House bot: enabled, healthy stock target
 LLM whispers: enabled through wow-llm-bridge
+LLM NPC director: forwards human-guild and party chat events to wow-llm-bridge
 Name profanity/strict-name checks: disabled
 Cross-faction: guild invites, friend status, and whispers enabled
 ```
@@ -64,12 +65,13 @@ mod_aoe_loot.conf
 mod_ollama_chat.conf
 individualProgression.conf
 hardcore.conf
+llm_npc_director.conf
 playerbots.conf
 ```
 
 `mod_ahbot.conf` must remain based on the full `mod_ahbot.conf.dist`; a tiny override-only file caused empty listing-proportion errors and no auctions.
 
-`mod-friend-boost`, `mod-hardcore`, and `mod-small-group-tweaks` are
-repo-owned modules. Keep custom module work in repo-owned modules so the
-cloned third-party modules can be updated or shared without carrying local
-patches.
+`mod-friend-boost`, `mod-hardcore`, `mod-small-group-tweaks`, and
+`mod-llm-npc-director` are repo-owned modules. Keep custom module work in
+repo-owned modules so the cloned third-party modules can be updated or shared
+without carrying local patches.

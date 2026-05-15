@@ -17,16 +17,10 @@ The core repo lives at:
 <server-root>\<core-repo>
 ```
 
-The LLM bridge lives beside it:
+The LLM bridge source lives in the repo:
 
 ```text
-<server-root>\llm-bridge
-```
-
-From inside `<core-repo>`, the bridge path is:
-
-```text
-..\llm-bridge
+<server-root>\<core-repo>\tools\WoWLlmBridge
 ```
 
 ## Prerequisites
@@ -53,6 +47,7 @@ Copy examples into local files:
 ```powershell
 Copy-Item .env.example .env
 Copy-Item docker-compose.override.example.yml docker-compose.override.yml
+Copy-Item .\tools\WoWLlmBridge\.env.example .\tools\WoWLlmBridge\.env
 ```
 
 Then clone modules:
@@ -71,13 +66,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\apply-host-config.ps1
 
 ## LLM Bridge
 
-The Compose override expects a sibling folder:
+The Compose override expects the tracked bridge source at:
 
 ```text
-..\llm-bridge
+.\tools\WoWLlmBridge
 ```
 
 That folder needs its own `.env` containing the API key and provider settings. Do not commit that file.
+
+```powershell
+Copy-Item .\tools\WoWLlmBridge\.env.example .\tools\WoWLlmBridge\.env
+```
 
 The worldserver talks to the bridge at:
 
@@ -99,7 +98,7 @@ docker compose build wow-llm-bridge
 ```
 
 The image can build before the API key is filled in, but the running bridge
-needs `OPENAI_API_KEY` in `..\llm-bridge\.env` before it can answer model
+needs provider/API settings in `.\tools\WoWLlmBridge\.env` before it can answer model
 requests.
 
 ## Build
@@ -266,6 +265,14 @@ import service so new tables or cleanup SQL are applied. For example,
 the old Challenge Shrine rows during import. `mod-small-group-tweaks` adds
 player RBAC links for cross-faction friend status, who visibility, and
 whispers.
+
+To export an ad-hoc live DB backup from a host:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\backup-live-db.ps1
+```
+
+That writes a timestamped gzip dump under `backups\`. Ad-hoc backups are ignored unless deliberately promoted to the shared snapshot.
 
 ## Start
 
