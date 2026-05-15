@@ -69,6 +69,35 @@ function cleanupOutput(text, config) {
     .slice(0, config.maxOutputChars);
 }
 
+function isLocalOpenAiCompatible(config) {
+  if (!config || config.provider !== "openai-compatible") {
+    return false;
+  }
+  try {
+    const url = new URL(config.baseUrl);
+    return ["localhost", "127.0.0.1", "::1", "host.docker.internal"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function requiresApiKey(config) {
+  if (config.provider === "gemini") {
+    return true;
+  }
+  if (config.provider === "openai-compatible") {
+    return !isLocalOpenAiCompatible(config);
+  }
+  return true;
+}
+
+function authHeaders(config) {
+  if (!config.apiKey || !requiresApiKey(config)) {
+    return {};
+  }
+  return { authorization: `Bearer ${config.apiKey}` };
+}
+
 function extractGeminiText(payload) {
   const parts = payload &&
     Array.isArray(payload.candidates) &&
@@ -88,7 +117,7 @@ async function callOpenAiCompatible(prompt, config) {
   const response = await fetchWithTimeout(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${config.apiKey}`,
+      ...authHeaders(config),
       "content-type": "application/json"
     },
     body: JSON.stringify({
@@ -137,7 +166,7 @@ async function callGemini(prompt, config) {
 }
 
 async function complete(prompt, config) {
-  if (!config.apiKey) {
+  if (requiresApiKey(config) && !config.apiKey) {
     throw new Error("WOW_LLM_API_KEY is not set");
   }
 
@@ -159,7 +188,7 @@ async function checkBackend(config) {
   const response = await fetchWithTimeout(`${config.baseUrl}/models`, {
     method: "GET",
     headers: {
-      authorization: `Bearer ${config.apiKey}`,
+      ...authHeaders(config),
       "content-type": "application/json"
     }
   }, config.backendHealthTimeoutMs);
@@ -232,5 +261,7 @@ module.exports = {
   CircuitBreaker,
   flattenMessages,
   extractOpenAiText,
-  extractGeminiText
+  extractGeminiText,
+  isLocalOpenAiCompatible,
+  requiresApiKey
 };

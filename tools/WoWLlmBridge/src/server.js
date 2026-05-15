@@ -3,7 +3,7 @@
 const http = require("node:http");
 const { loadConfig } = require("./config");
 const { logEvent } = require("./logger");
-const { complete, flattenMessages, capPrompt, checkBackend, CircuitBreaker } = require("./provider");
+const { complete, flattenMessages, capPrompt, checkBackend, CircuitBreaker, requiresApiKey } = require("./provider");
 const { RequestQueue } = require("./queue");
 const { MemoryStore } = require("./memory-store");
 const { DirectorService } = require("./director");
@@ -923,7 +923,8 @@ function createBridge(config = loadConfig()) {
         ok: !circuit.isOpen() && store.health().ok,
         provider: config.provider,
         model: config.model,
-        hasApiKey: Boolean(config.apiKey),
+        hasApiKey: requiresApiKey(config) ? Boolean(config.apiKey) : false,
+        apiKeyRequired: requiresApiKey(config),
         uptimeSeconds: Math.round((Date.now() - startedAt.getTime()) / 1000),
         queue: queue.stats(),
         circuit: circuit.stats(),

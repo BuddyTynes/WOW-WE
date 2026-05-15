@@ -26,6 +26,8 @@ Current safety posture:
   director prompts and how often exact-safe lines may be reused.
 - `/health` reports queue/circuit/cap state plus memory DB health and counts.
   `/health?probe=1` also probes the OpenAI-compatible `/models` endpoint.
+  `apiKeyRequired=false` and `hasApiKey=false` are expected for local
+  llama.cpp endpoints.
 
 Bridge-owned memory endpoints:
 

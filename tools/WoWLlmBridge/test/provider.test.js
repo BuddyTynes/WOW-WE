@@ -2,7 +2,14 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { flattenMessages, extractOpenAiText, extractGeminiText, capPrompt, cleanupOutput } = require("../src/provider");
+const {
+  flattenMessages,
+  extractOpenAiText,
+  extractGeminiText,
+  capPrompt,
+  cleanupOutput,
+  requiresApiKey
+} = require("../src/provider");
 
 test("flattenMessages preserves role order", () => {
   const result = flattenMessages([
@@ -45,4 +52,15 @@ test("cleanupOutput strips reasoning and caps text", () => {
   const result = cleanupOutput("<think>secret</think>\ntool_call: nope\nzug zug forever", { maxOutputChars: 7 });
 
   assert.equal(result, "zug zug");
+});
+
+test("local OpenAI-compatible llama.cpp does not require an API key", () => {
+  assert.equal(requiresApiKey({
+    provider: "openai-compatible",
+    baseUrl: "http://host.docker.internal:8088/v1"
+  }), false);
+  assert.equal(requiresApiKey({
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1"
+  }), true);
 });
