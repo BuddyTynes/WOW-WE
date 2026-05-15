@@ -20,6 +20,10 @@ Current safety posture:
 - `WOW_LLM_MAX_TOOL_CALLS_PER_EVENT` defaults to 6 and
   `WOW_LLM_MAX_TOOL_TIME_MS` defaults to 2500 ms for director memory/profile
   lookups before the model call.
+- `WOW_LLM_SPICE_ENABLE=1` enables the imported Spice of Life chat pool.
+  `WOW_LLM_SPICE_LINES`, `WOW_LLM_SPICE_EXACT_CHANCE`, and
+  `WOW_LLM_SPICE_MIN_QUALITY` control how many style examples are added to
+  director prompts and how often exact-safe lines may be reused.
 - `/health` reports queue/circuit/cap state plus memory DB health and counts.
   `/health?probe=1` also probes the OpenAI-compatible `/models` endpoint.
 
@@ -34,6 +38,7 @@ POST /api/memory/search_memories
 POST /api/memory/write_memory
 POST /api/memory/record_event
 POST /api/memory/get_recent_chat
+POST /api/memory/get_chat_inspiration
 POST /api/memory/write_conversation_summary
 ```
 

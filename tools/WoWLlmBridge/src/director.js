@@ -87,9 +87,16 @@ function validateMemoryUpdate(update) {
   };
 }
 
-function buildPrompt({ event, bot, player, relationship, memories, recentChat }) {
+function formatSpiceLine(line) {
+  const mode = line.allow_exact ? "copy-ok" : "style-only";
+  const speaker = line.speaker ? `${line.speaker}: ` : "";
+  return `[${line.channel_type}/${mode}] ${speaker}${line.message}`;
+}
+
+function buildPrompt({ event, bot, player, relationship, memories, recentChat, spiceLines }) {
   const memoryLines = memories.map((memory) => `- [${memory.kind} w${memory.weight}] ${memory.summary}`).join("\n");
   const chatLines = recentChat.map((chat) => `${chat.speaker_name || chat.direction}: ${chat.text}`).join("\n");
+  const spiceText = spiceLines.map(formatSpiceLine).join("\n");
   const payload = {
     contract: {
       bot_guid: bot.bot_guid,
@@ -109,13 +116,15 @@ function buildPrompt({ event, bot, player, relationship, memories, recentChat })
     player,
     relationship,
     memories: memoryLines || "(none)",
-    recent_chat: chatLines || "(none)"
+    recent_chat: chatLines || "(none)",
+    chat_inspiration: spiceText || "(none)"
   };
   return [
     "You are selecting and speaking for one WoW NPC bot.",
     "Return only strict JSON matching the contract. No markdown.",
     "Keep guild say under 180 chars and party say under 120 chars.",
     "Only write memory for durable facts/preferences/promises worth remembering.",
+    "Use chat_inspiration as tone fuel. copy-ok lines may be reused exactly if they fit; style-only lines must not be copied.",
     JSON.stringify(payload, null, 2)
   ].join("\n");
 }
@@ -200,18 +209,26 @@ class DirectorService {
       channel_type: channel,
       limit: 12
     }));
+    const spiceResult = this.config.spiceEnable === false ? null : await this.store.getChatInspiration({
+      channel_type: channel,
+      limit: this.config.spiceLines === undefined ? 6 : this.config.spiceLines,
+      min_quality: this.config.spiceMinQuality === undefined ? 50 : this.config.spiceMinQuality,
+      exact_chance: this.config.spiceExactChance === undefined ? 15 : this.config.spiceExactChance
+    });
 
     const botProfile = await this.store.getBotProfile({ bot_guid: botGuid });
     const playerProfile = playerGuid ? await this.store.getPlayerProfile({ player_guid: playerGuid }) : null;
     const memories = memoryResult && memoryResult.ok ? memoryResult.data.memories : [];
     const recentChat = recentResult && recentResult.ok ? recentResult.data.events : [];
+    const spiceLines = spiceResult && spiceResult.ok ? spiceResult.data.lines : [];
     const prompt = capPrompt(buildPrompt({
       event: { ...event, channel_type: channel },
       bot: botProfile.ok ? botProfile.data : selectedBot,
       player: playerProfile && playerProfile.ok ? playerProfile.data : null,
       relationship: relationship && relationship.ok ? relationship.data : null,
       memories,
-      recentChat
+      recentChat,
+      spiceLines
     }), this.config);
 
     const raw = await this.complete(prompt, this.config);

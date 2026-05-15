@@ -103,6 +103,26 @@ local behavior, create a new repo-owned companion module such as
 keeps upstream modules clean so they can be updated or recloned across machines
 without losing project changes.
 
+### LLM bridge and chat-pool setup
+
+The repo-owned LLM bridge lives in `tools/WoWLlmBridge`. Keep runtime state
+local: do not commit `tools/WoWLlmBridge/.env`, `tools/WoWLlmBridge/data`, or
+the runtime SQLite database.
+
+The Spice of Life chat pool is portable through the tracked seed file at
+`tools/WoWLlmBridge/seeds/spice_chat_pool.seed.jsonl`. Raw ElvUI exports in
+`tools/ChatLogPool/unparsed logs` and copied files in
+`tools/ChatLogPool/parsed logs` are local-only and ignored. If new raw logs are
+provided, run:
+
+```powershell
+node .\tools\ChatLogPool\import-chat-logs.js
+```
+
+Commit the regenerated seed and parser/docs changes, not the raw or parsed log
+files. Keep `SETUP.md` updated with any operator steps required for another
+machine to rebuild and run the bridge.
+
 ### Dependencies
 
 Bundled in `deps/`: boost, MySQL client, OpenSSL, zlib, recastnavigation (pathfinding), g3dlite (geometry), fmt, argon2, jemalloc, and others.

@@ -29,7 +29,11 @@ function loadConfig() {
     circuitCooldownMs: Math.trunc(numberFromEnv("WOW_LLM_CIRCUIT_COOLDOWN_MS", 30000, 1000, 600000)),
     memoryDbPath: process.env.WOW_LLM_MEMORY_DB || "./data/llm_memory.sqlite3",
     maxToolCallsPerEvent: Math.trunc(numberFromEnv("WOW_LLM_MAX_TOOL_CALLS_PER_EVENT", 6, 1, 12)),
-    maxToolTimeMs: Math.trunc(numberFromEnv("WOW_LLM_MAX_TOOL_TIME_MS", 2500, 100, 10000))
+    maxToolTimeMs: Math.trunc(numberFromEnv("WOW_LLM_MAX_TOOL_TIME_MS", 2500, 100, 10000)),
+    spiceEnable: process.env.WOW_LLM_SPICE_ENABLE !== "0",
+    spiceLines: Math.trunc(numberFromEnv("WOW_LLM_SPICE_LINES", 6, 0, 20)),
+    spiceExactChance: Math.trunc(numberFromEnv("WOW_LLM_SPICE_EXACT_CHANCE", 15, 0, 100)),
+    spiceMinQuality: Math.trunc(numberFromEnv("WOW_LLM_SPICE_MIN_QUALITY", 50, 0, 100))
   };
 }
 

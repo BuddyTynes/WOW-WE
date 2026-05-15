@@ -126,6 +126,21 @@ http://wow-llm-bridge:11434/api/director/event
 http://wow-llm-bridge:11434/api/bot-guild-invite/decision
 ```
 
+The bridge also imports the tracked Spice of Life chat seed on startup:
+
+```text
+tools\WoWLlmBridge\seeds\spice_chat_pool.seed.jsonl
+```
+
+To refresh that seed from local ElvUI exports, put `.lua` files in
+`tools\ChatLogPool\unparsed logs`, then run:
+
+```powershell
+node .\tools\ChatLogPool\import-chat-logs.js
+```
+
+The raw and parsed `.lua` files stay local; commit only the regenerated seed.
+
 The host publishes it as:
 
 ```text

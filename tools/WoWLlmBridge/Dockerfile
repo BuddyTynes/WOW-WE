@@ -7,6 +7,7 @@ RUN apk add --no-cache sqlite
 COPY package.json ./
 COPY src ./src
 COPY migrations ./migrations
+COPY seeds ./seeds
 
 ENV NODE_ENV=production
 ENV WOW_LLM_BRIDGE_PORT=11434

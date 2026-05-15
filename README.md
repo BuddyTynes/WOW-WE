@@ -31,6 +31,7 @@ Auction House bot: enabled
 LLM whispers: enabled
 LLM guild/party director: enabled through wow-llm-bridge
 LLM playerbot guild invite decisions: enabled
+LLM Spice of Life chat pool: imported by wow-llm-bridge
 Name/chat profanity: server-side name checks disabled; client chat filter may still be local
 ```
 
@@ -81,6 +82,8 @@ build logs
 Docker volumes
 tools\WoWLlmBridge\.env
 tools\WoWLlmBridge\data
+tools\ChatLogPool\unparsed logs\*.lua
+tools\ChatLogPool\parsed logs\*.lua
 ```
 
 Use these tracked examples instead:

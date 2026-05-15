@@ -47,6 +47,7 @@ AOE loot: enabled
 Auction House bot: enabled, healthy stock target
 LLM whispers: enabled through wow-llm-bridge
 LLM NPC director: forwards human-guild and party chat events to wow-llm-bridge
+LLM Spice of Life: bridge imports a tracked chat-style seed for director prompts
 Name profanity/strict-name checks: disabled
 Cross-faction: guild invites, friend status, and whispers enabled
 ```

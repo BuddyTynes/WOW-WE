@@ -300,6 +300,15 @@ function formatRecentChat(chat) {
   return `${speaker}: ${text}`;
 }
 
+function formatSpiceLine(line) {
+  if (!line || !line.message) {
+    return "";
+  }
+  const mode = line.allow_exact ? "copy-ok" : "style-only";
+  const speaker = line.speaker ? `${line.speaker}: ` : "";
+  return `- [${line.channel_type}/${mode}] ${speaker}${line.message}`;
+}
+
 function buildRecentContextHint(parsed, recentChat) {
   const message = String(parsed.message || "");
   const needsContext = /\b(that|this|he|she|they|them|it|above|earlier|before|previous|last|said|called|asked|reply|response|few messages)\b/i.test(message);
@@ -533,7 +542,7 @@ function legacyScope(parsed) {
   return { scopeType: channel, scopeId: `${channel}:unknown`, guildId: null, partyId: null };
 }
 
-async function buildLegacyDirectorContext(store, parsed, metadata) {
+async function buildLegacyDirectorContext(store, parsed, metadata, config = {}) {
   const selectedBot = chooseLegacyBot(parsed);
   const persona = LEGACY_BOT_PERSONAS[selectedBot.toLowerCase()] || null;
   const botGuid = stableLegacyId(`legacy-bot:${selectedBot.toLowerCase()}`);
@@ -619,6 +628,12 @@ async function buildLegacyDirectorContext(store, parsed, metadata) {
     kinds: ["relationship", "preference", "fact", "promise", "summary", "instruction"],
     limit: 8
   });
+  const spiceResult = config.spiceEnable === false ? null : await store.getChatInspiration({
+    channel_type: parsed.channel === "raid" ? "raid" : scope.scopeType,
+    limit: config.spiceLines === undefined ? 6 : config.spiceLines,
+    min_quality: config.spiceMinQuality === undefined ? 50 : config.spiceMinQuality,
+    exact_chance: config.spiceExactChance === undefined ? 15 : config.spiceExactChance
+  });
 
   return {
     selectedBot,
@@ -632,7 +647,8 @@ async function buildLegacyDirectorContext(store, parsed, metadata) {
     memoryWrite: memoryWrites.length > 0,
     memoryCount: memoryResult.ok ? memoryResult.data.memories.length : 0,
     persona,
-    guildBots: parsed.bots.filter((bot) => bot !== selectedBot)
+    guildBots: parsed.bots.filter((bot) => bot !== selectedBot),
+    spiceLines: spiceResult && spiceResult.ok ? spiceResult.data.lines : []
   };
 }
 
@@ -696,6 +712,10 @@ function buildLegacyDirectorPrompt(parsed, context = {}) {
     .map(formatRecentChat)
     .filter(Boolean)
     .join("\n") || "(none)";
+  const spiceLines = (context.spiceLines || [])
+    .map(formatSpiceLine)
+    .filter(Boolean)
+    .join("\n") || "(none)";
   const recentContextHint = context.recentContextHint || "";
 
   return [
@@ -711,6 +731,7 @@ function buildLegacyDirectorPrompt(parsed, context = {}) {
     "If RECENT_CHAT answers the player's question, answer from RECENT_CHAT directly. If MEMORY answers it, answer from MEMORY directly.",
     "You may form opinions and grudges from RECENT_CHAT, especially about other eligible bots.",
     "For world or hardcore death events, react like world chat: short, pointed, funny, and aimed at the dead player.",
+    "Use SPICE_OF_LIFE_STYLE as tone examples. copy-ok lines may be reused exactly only if they fit naturally; style-only lines must not be copied verbatim.",
     "Do not ask trivia questions. Do not explain rules. Do not claim you executed game commands.",
     "If the player asks you to move, teleport, follow, or come to them, say the movement command hook is not wired yet.",
     persona ? `You are ${persona.name}: ${persona.seed}` : "",
@@ -723,6 +744,7 @@ function buildLegacyDirectorPrompt(parsed, context = {}) {
     `selected_bot=${context.selectedBot || ""}`,
     `eligible_bots=${parsed.bots.join(", ")}`,
     `MEMORY:\n${memories}`,
+    `SPICE_OF_LIFE_STYLE:\n${spiceLines}`,
     `RECENT_CHAT:\n${recentChat}`,
     recentContextHint,
     `message=${parsed.message}`
@@ -773,7 +795,7 @@ function createBridge(config = loadConfig()) {
         let legacyContext = null;
         if (legacyDirector) {
           await memoryReady;
-          legacyContext = await buildLegacyDirectorContext(store, legacyDirector, metadata);
+          legacyContext = await buildLegacyDirectorContext(store, legacyDirector, metadata, config);
           const directorPrompt = capPrompt(buildLegacyDirectorPrompt(legacyDirector, legacyContext), config);
           const rawText = await complete(directorPrompt, config);
           text = normalizeLegacyDirectorResponse(rawText, legacyDirector, legacyContext);
@@ -855,6 +877,7 @@ function createBridge(config = loadConfig()) {
       write_memory: (input) => store.writeMemory(input),
       record_event: (input) => store.recordEvent(input),
       get_recent_chat: (input) => store.getRecentChat(input),
+      get_chat_inspiration: (input) => store.getChatInspiration(input),
       write_conversation_summary: (input) => store.writeConversationSummary(input)
     };
     if (!tools[toolName]) {

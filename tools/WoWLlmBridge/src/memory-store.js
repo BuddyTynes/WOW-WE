@@ -2,9 +2,10 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { SqliteCliDatabase, sqlLiteral } = require("./sqlite-cli");
 
-const CHANNEL_TYPES = new Set(["guild", "party", "raid", "whisper", "say", "channel", "world", "system"]);
+const CHANNEL_TYPES = new Set(["guild", "party", "raid", "whisper", "say", "yell", "channel", "world", "system"]);
 const MEMORY_KINDS = new Set([
   "relationship", "preference", "fact", "promise", "conflict", "achievement",
   "instruction", "summary", "system_note"
@@ -67,6 +68,10 @@ function normalizeName(name) {
 
 function randomId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
 
 function clamp(value, min, max, fallback) {
@@ -159,10 +164,27 @@ function rowToMemory(row) {
   };
 }
 
+function rowToSpiceLine(row, exactChance) {
+  const exactSafe = asBool(row.exact_safe);
+  return {
+    line_hash: row.line_hash,
+    message: row.message,
+    speaker: row.speaker || "",
+    channel_type: row.channel_type,
+    channel_name: row.channel_name || "",
+    event_type: row.event_type,
+    quality_score: asInt(row.quality_score) || 0,
+    exact_safe: exactSafe,
+    allow_exact: exactSafe && Math.random() * 100 < exactChance,
+    tags: parseJson(row.tags_json, [])
+  };
+}
+
 class MemoryStore {
   constructor(options = {}) {
     this.db = options.db || new SqliteCliDatabase(options.dbPath || "./data/llm_memory.sqlite3");
     this.migrationsDir = options.migrationsDir || path.join(__dirname, "..", "migrations");
+    this.seedsDir = options.seedsDir || path.join(__dirname, "..", "seeds");
     this.ready = false;
     this.lastError = null;
   }
@@ -176,8 +198,81 @@ class MemoryStore {
       const sql = await fs.promises.readFile(path.join(this.migrationsDir, file), "utf8");
       await this.db.exec(sql);
     }
+    await this.importBundledSpiceSeeds();
     this.ready = true;
     this.lastError = null;
+  }
+
+  async importBundledSpiceSeeds() {
+    let files = [];
+    try {
+      files = (await fs.promises.readdir(this.seedsDir))
+        .filter((file) => /^spice_.*\.seed\.jsonl$/.test(file))
+        .sort();
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+    for (const file of files) {
+      await this.importSpiceSeedFile(path.join(this.seedsDir, file), file);
+    }
+  }
+
+  async importSpiceSeedFile(seedPath, seedName = path.basename(seedPath)) {
+    const seedText = await fs.promises.readFile(seedPath, "utf8");
+    const seedHash = sha256(seedText);
+    const existing = await this.db.get("SELECT seed_hash FROM spice_chat_seed_imports WHERE seed_hash = ?;", [seedHash]);
+    if (existing) {
+      return ok({ seed_hash: seedHash, imported: false, line_count: 0 });
+    }
+    const records = seedText.split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const chunks = [];
+    for (let i = 0; i < records.length; i += 150) {
+      chunks.push(records.slice(i, i + 150));
+    }
+    for (const chunk of chunks) {
+      const values = chunk.map((record) => `(
+        ${sqlLiteral(record.line_hash)}, ${sqlLiteral(record.source_hash)}, ${sqlLiteral(record.source_file)},
+        ${sqlLiteral(record.source_table)}, ${sqlLiteral(record.source_key)}, ${sqlLiteral(record.message)},
+        ${sqlLiteral(record.speaker)}, ${sqlLiteral(record.channel_type)}, ${sqlLiteral(record.channel_name)},
+        ${sqlLiteral(record.event_type)}, ${sqlLiteral(asInt(record.event_timestamp))},
+        ${sqlLiteral(clamp(record.quality_score, 0, 100, 50))}, ${sqlLiteral(record.exact_safe ? 1 : 0)},
+        ${sqlLiteral(jsonText(record.tags, []))}, ${sqlLiteral(jsonText(record.metadata, {}))}
+      )`).join(",");
+      await this.db.exec(`
+        INSERT INTO spice_chat_lines (
+          line_hash, source_hash, source_file, source_table, source_key, message,
+          speaker, channel_type, channel_name, event_type, event_timestamp,
+          quality_score, exact_safe, tags_json, metadata_json
+        ) VALUES ${values}
+        ON CONFLICT(line_hash) DO UPDATE SET
+          source_hash = excluded.source_hash,
+          source_file = excluded.source_file,
+          source_table = excluded.source_table,
+          source_key = excluded.source_key,
+          message = excluded.message,
+          speaker = excluded.speaker,
+          channel_type = excluded.channel_type,
+          channel_name = excluded.channel_name,
+          event_type = excluded.event_type,
+          event_timestamp = excluded.event_timestamp,
+          quality_score = excluded.quality_score,
+          exact_safe = excluded.exact_safe,
+          tags_json = excluded.tags_json,
+          metadata_json = excluded.metadata_json,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+      `);
+    }
+    await this.db.exec(`
+      INSERT OR IGNORE INTO spice_chat_seed_imports(seed_hash, seed_name, line_count)
+      VALUES (${sqlLiteral(seedHash)}, ${sqlLiteral(seedName)}, ${sqlLiteral(records.length)});
+    `);
+    return ok({ seed_hash: seedHash, imported: true, line_count: records.length });
   }
 
   async ensureReady() {
@@ -203,13 +298,14 @@ class MemoryStore {
   async getCounts() {
     await this.ensureReady();
     const row = await this.db.get(
-      "SELECT (SELECT COUNT(*) FROM bot_profiles) AS bots, (SELECT COUNT(*) FROM player_profiles) AS players, (SELECT COUNT(*) FROM memories) AS memories, (SELECT COUNT(*) FROM event_log) AS events;"
+      "SELECT (SELECT COUNT(*) FROM bot_profiles) AS bots, (SELECT COUNT(*) FROM player_profiles) AS players, (SELECT COUNT(*) FROM memories) AS memories, (SELECT COUNT(*) FROM event_log) AS events, (SELECT COUNT(*) FROM spice_chat_lines) AS spice_lines;"
     );
     return {
       bots: asInt(row.bots) || 0,
       players: asInt(row.players) || 0,
       memories: asInt(row.memories) || 0,
-      events: asInt(row.events) || 0
+      events: asInt(row.events) || 0,
+      spice_lines: asInt(row.spice_lines) || 0
     };
   }
 
@@ -600,6 +696,50 @@ class MemoryStore {
         };
       })
     });
+  }
+
+  async getChatInspiration(input = {}) {
+    await this.ensureReady();
+    const limit = Math.min(20, Math.max(0, asInt(input.limit) || 6));
+    if (limit === 0) {
+      return ok({ lines: [] });
+    }
+    const minQuality = clamp(input.min_quality, 0, 100, 50);
+    const exactChance = clamp(input.exact_chance, 0, 100, 15);
+    const channel = CHANNEL_TYPES.has(input.channel_type) ? input.channel_type : "channel";
+    const channels = channel === "world" || channel === "channel"
+      ? ["world", "channel"]
+      : [channel, "channel", "world"];
+    const quotedChannels = channels.map(sqlLiteral).join(",");
+    let rows = await this.db.query(`
+      SELECT line_hash, message, speaker, channel_type, channel_name, event_type,
+             quality_score, exact_safe, tags_json
+      FROM spice_chat_lines
+      WHERE quality_score >= ${sqlLiteral(minQuality)}
+        AND channel_type IN (${quotedChannels})
+      ORDER BY (quality_score + (abs(random()) % 25)) DESC
+      LIMIT ${limit};
+    `);
+    if (rows.length === 0) {
+      rows = await this.db.query(`
+        SELECT line_hash, message, speaker, channel_type, channel_name, event_type,
+               quality_score, exact_safe, tags_json
+        FROM spice_chat_lines
+        WHERE quality_score >= ${sqlLiteral(minQuality)}
+        ORDER BY (quality_score + (abs(random()) % 25)) DESC
+        LIMIT ${limit};
+      `);
+    }
+    const hashes = rows.map((row) => sqlLiteral(row.line_hash)).join(",");
+    if (hashes) {
+      await this.db.exec(`
+        UPDATE spice_chat_lines
+        SET use_count = use_count + 1,
+            last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE line_hash IN (${hashes});
+      `);
+    }
+    return ok({ lines: rows.map((row) => rowToSpiceLine(row, exactChance)) });
   }
 
   async writeConversationSummary(input) {

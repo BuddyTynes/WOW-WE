@@ -145,3 +145,9 @@ overnight-*.status.log
 /tools/WoWLlmBridge/.env
 /tools/WoWLlmBridge/data/
 /tools/WoWLlmBridge/node_modules/
+
+# Local raw chat-log sources for Spice of Life seed generation.
+/tools/ChatLogPool/unparsed logs/*
+!/tools/ChatLogPool/unparsed logs/.gitkeep
+/tools/ChatLogPool/parsed logs/*
+!/tools/ChatLogPool/parsed logs/.gitkeep
