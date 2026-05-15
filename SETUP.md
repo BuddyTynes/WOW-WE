@@ -97,8 +97,32 @@ Recommended starting llama.cpp settings for the local 8 GB RTX 3060 Ti target:
 --n-gpu-layers 99
 --batch-size 512
 --ubatch-size 128
---flash-attn
+--flash-attn on
+--cache-ram 0
 ```
+
+This repo expects local llama.cpp binaries and models under ignored paths:
+
+```text
+tools\local-llm\llama.cpp
+tools\local-llm\models\gemma-3n-E2B-it-Q4_K_M.gguf
+```
+
+Start the local backend with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-llm.ps1
+```
+
+Stop it with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-llm.ps1 -Stop
+```
+
+The `--cache-ram 0` flag is intentional for this host. The default llama.cpp
+prompt cache can reserve a large amount of RAM and caused unstable background
+starts during setup.
 
 The bridge `.env` should then contain:
 
@@ -106,11 +130,11 @@ The bridge `.env` should then contain:
 WOW_LLM_PROVIDER=openai-compatible
 WOW_LLM_MODEL=gemma-3n-E2B-it-Q4_K_M
 WOW_LLM_BASE_URL=http://host.docker.internal:8088/v1
-WOW_LLM_API_KEY=local-llama
+WOW_LLM_API_KEY=
 ```
 
-`WOW_LLM_API_KEY` only needs a non-empty placeholder for llama.cpp; the local
-server does not use a paid API key.
+`WOW_LLM_API_KEY` should stay empty for local llama.cpp. The bridge only
+requires a key for hosted providers.
 
 The worldserver talks to the bridge at:
 

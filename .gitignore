@@ -151,3 +151,6 @@ overnight-*.status.log
 !/tools/ChatLogPool/unparsed logs/.gitkeep
 /tools/ChatLogPool/parsed logs/*
 !/tools/ChatLogPool/parsed logs/.gitkeep
+
+# Local llama.cpp binaries and model cache.
+/tools/local-llm/

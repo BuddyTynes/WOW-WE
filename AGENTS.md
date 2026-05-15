@@ -123,6 +123,12 @@ Commit the regenerated seed and parser/docs changes, not the raw or parsed log
 files. Keep `SETUP.md` updated with any operator steps required for another
 machine to rebuild and run the bridge.
 
+Local llama.cpp binaries and GGUF models live under ignored `tools/local-llm`.
+Use `scripts/start-local-llm.ps1` to run the local backend on port 8088. Keep
+that script and `SETUP.md` aligned when llama.cpp flags change; the current
+Windows build expects `--flash-attn on`, and this host uses `--cache-ram 0` to
+avoid unstable background starts from the default prompt cache.
+
 ### Dependencies
 
 Bundled in `deps/`: boost, MySQL client, OpenSSL, zlib, recastnavigation (pathfinding), g3dlite (geometry), fmt, argon2, jemalloc, and others.
