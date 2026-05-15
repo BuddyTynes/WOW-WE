@@ -36,6 +36,65 @@ function Set-ConfigValue {
     Set-Content -LiteralPath $Path -Value $text -NoNewline
 }
 
+function Set-ComposeEnvironmentValue {
+    param(
+        [string]$Path,
+        [string]$Key,
+        [string]$Value
+    )
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    $text = Get-Content -LiteralPath $Path -Raw
+    $line = "      $Key`: `"$Value`""
+    $pattern = "(?m)^\s{6}" + [regex]::Escape($Key) + "\s*:.*$"
+
+    if ($text -match $pattern) {
+        $text = [regex]::Replace($text, $pattern, $line)
+    } elseif ($text -match "(?m)^\s{6}AC_ALLOW_TWO_SIDE_INTERACTION_AUCTION\s*:.*\r?\n") {
+        $insertAfter = [regex]"(?m)^(\s{6}AC_ALLOW_TWO_SIDE_INTERACTION_AUCTION\s*:.*\r?\n)"
+        $text = $insertAfter.Replace($text, "`${1}$line`r`n", 1)
+    } else {
+        $text += "`r`n$line`r`n"
+    }
+
+    Set-Content -LiteralPath $Path -Value $text -NoNewline
+}
+
+$worldConfigDir = Join-Path $root "env\dist\etc"
+$worldConfig = Join-Path $worldConfigDir "worldserver.conf"
+$worldConfigDist = Join-Path $worldConfigDir "worldserver.conf.dist"
+if (-not (Test-Path $worldConfig) -and (Test-Path $worldConfigDist)) {
+    Copy-Item -LiteralPath $worldConfigDist -Destination $worldConfig
+}
+
+if (Test-Path $worldConfig) {
+    $worldValues = [ordered]@{
+        "AllowTwoSide.Interaction.Guild" = "1"
+        "AllowTwoSide.WhoList" = "1"
+        "AllowTwoSide.AddFriend" = "1"
+        "MaxPrimaryTradeSkill" = "11"
+    }
+
+    foreach ($key in $worldValues.Keys) {
+        Set-ConfigValue -Path $worldConfig -Key $key -Value $worldValues[$key]
+    }
+}
+
+$composeOverride = Join-Path $root "docker-compose.override.yml"
+$composeValues = [ordered]@{
+    "AC_ALLOW_TWO_SIDE_INTERACTION_GUILD" = "1"
+    "AC_ALLOW_TWO_SIDE_WHO_LIST" = "1"
+    "AC_ALLOW_TWO_SIDE_ADD_FRIEND" = "1"
+    "AC_MAX_PRIMARY_TRADE_SKILL" = "11"
+}
+
+foreach ($key in $composeValues.Keys) {
+    Set-ComposeEnvironmentValue -Path $composeOverride -Key $key -Value $composeValues[$key]
+}
+
 $ahbotSource = Join-Path $root "modules\mod-ah-bot-plus\conf\mod_ahbot.conf.dist"
 $ahbotTarget = Join-Path $moduleConfigDir "mod_ahbot.conf"
 if (Test-Path $ahbotSource) {

@@ -14,6 +14,8 @@
 !/modules/mod-friend-boost/**
 !/modules/mod-hardcore/
 !/modules/mod-hardcore/**
+!/modules/mod-small-group-tweaks/
+!/modules/mod-small-group-tweaks/**
 /build*/
 /var/*
 !/var/build/.gitkeep

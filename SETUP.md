@@ -263,7 +263,9 @@ adding or changing one of these modules, rebuild `ac-worldserver` and
 `ac-db-import`, rerun `scripts\apply-host-config.ps1`, then run the setup
 import service so new tables or cleanup SQL are applied. For example,
 `mod-hardcore` creates `acore_characters.mod_hardcore_characters` and removes
-the old Challenge Shrine rows during import.
+the old Challenge Shrine rows during import. `mod-small-group-tweaks` adds
+player RBAC links for cross-faction friend status, who visibility, and
+whispers.
 
 ## Start
 
@@ -297,6 +299,25 @@ For config-only changes:
 ```powershell
 docker compose up -d --no-build --force-recreate ac-authserver ac-worldserver
 ```
+
+## Small-Group Realm Tweaks
+
+Use `.online` to list connected real players without the random playerbots
+that appear in `/who`:
+
+```text
+.online
+```
+
+The realm is configured for cross-faction guild invites, cross-faction friend
+adds/status, and cross-faction whispers. Broad cross-faction chat is still not
+enabled, so normal say/yell language behavior is left alone. One client/core
+quirk to remember: AzerothCore sends guild chat as universal language when
+cross-faction guilds are enabled, so mixed-faction guild chat will be readable.
+
+Characters can learn all 11 WotLK primary professions over time. The setup
+sets `MaxPrimaryTradeSkill = 11`, and `mod-small-group-tweaks` refreshes the
+remaining profession slots on login for existing characters.
 
 ## GM Utilities
 
@@ -337,11 +358,11 @@ If the target player is selected, the name can be omitted:
 
 The command requires GM access, levels the character, learns level-appropriate
 class and trainer spells, assigns talents, equips level-appropriate generated
-gear, adds bags, consumables, reagents, ammo, mounts, pets where applicable,
-and initializes primary/secondary professions with recipes available from
-trainers up to that level. It only works while the target player is online.
-Generated gear is intentionally conservative for catch-up play: the command
-rolls mostly green gear with occasional blue pieces so there is still plenty to
-replace through dungeon and quest rewards.
+gear, and adds bags, consumables, reagents, ammo, mounts, and pets where
+applicable. It does not learn or level professions, so catch-up characters can
+still choose their own crafting and gathering path. It only works while the
+target player is online. Generated gear is intentionally conservative for
+catch-up play: the command rolls mostly green gear with occasional blue pieces
+so there is still plenty to replace through dungeon and quest rewards.
 
 For full host notes and troubleshooting, see [SERVER_BUILD_RUNBOOK.md](SERVER_BUILD_RUNBOOK.md).

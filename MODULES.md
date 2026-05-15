@@ -42,10 +42,12 @@ Playerbots: 250 random bots
 XP: 1.2x
 Progression: Vanilla phase 1
 Hardcore: command opt-in, with 25% random playerbot opt-in
+Small-group tweaks: .online real-player list and all primary profession slots
 AOE loot: enabled
 Auction House bot: enabled, healthy stock target
 LLM whispers: enabled through wow-llm-bridge
 Name profanity/strict-name checks: disabled
+Cross-faction: guild invites, friend status, and whispers enabled
 ```
 
 The runtime module config files live under:
@@ -66,3 +68,8 @@ playerbots.conf
 ```
 
 `mod_ahbot.conf` must remain based on the full `mod_ahbot.conf.dist`; a tiny override-only file caused empty listing-proportion errors and no auctions.
+
+`mod-friend-boost`, `mod-hardcore`, and `mod-small-group-tweaks` are
+repo-owned modules. Keep custom module work in repo-owned modules so the
+cloned third-party modules can be updated or shared without carrying local
+patches.
