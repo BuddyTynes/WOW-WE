@@ -309,11 +309,12 @@ that appear in `/who`:
 .online
 ```
 
-The realm is configured for cross-faction guild invites, cross-faction friend
-adds/status, and cross-faction whispers. Broad cross-faction chat is still not
+The realm is configured for cross-faction party/raid invites, guild invites,
+friend adds/status, and whispers. Broad cross-faction chat is still not
 enabled, so normal say/yell language behavior is left alone. One client/core
-quirk to remember: AzerothCore sends guild chat as universal language when
-cross-faction guilds are enabled, so mixed-faction guild chat will be readable.
+quirk to remember: AzerothCore sends party, raid, and guild chat as universal
+language when cross-faction groups or guilds are enabled, so those mixed-faction
+channels will be readable.
 
 Characters can learn all 11 WotLK primary professions over time. The setup
 sets `MaxPrimaryTradeSkill = 11`, and `mod-small-group-tweaks` refreshes the

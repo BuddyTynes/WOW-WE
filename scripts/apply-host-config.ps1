@@ -73,6 +73,7 @@ if (-not (Test-Path $worldConfig) -and (Test-Path $worldConfigDist)) {
 if (Test-Path $worldConfig) {
     $worldValues = [ordered]@{
         "AllowTwoSide.Interaction.Guild" = "1"
+        "AllowTwoSide.Interaction.Group" = "1"
         "AllowTwoSide.WhoList" = "1"
         "AllowTwoSide.AddFriend" = "1"
         "MaxPrimaryTradeSkill" = "11"
@@ -86,6 +87,7 @@ if (Test-Path $worldConfig) {
 $composeOverride = Join-Path $root "docker-compose.override.yml"
 $composeValues = [ordered]@{
     "AC_ALLOW_TWO_SIDE_INTERACTION_GUILD" = "1"
+    "AC_ALLOW_TWO_SIDE_INTERACTION_GROUP" = "1"
     "AC_ALLOW_TWO_SIDE_WHO_LIST" = "1"
     "AC_ALLOW_TWO_SIDE_ADD_FRIEND" = "1"
     "AC_MAX_PRIMARY_TRADE_SKILL" = "11"
