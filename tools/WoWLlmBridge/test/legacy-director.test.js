@@ -8,7 +8,11 @@ const {
   buildLegacyDirectorPrompt,
   extractLegacyMemories,
   extractLegacyContextMemories,
-  extractLegacyWorldEventMemories
+  extractLegacyWorldEventMemories,
+  filterLegacyMemoriesForPrompt,
+  tacticalAnswerFromContext,
+  recentAnswerFromContext,
+  answerFromMemories
 } = require("../src/server");
 
 test("legacy director prompt parser extracts eligible bot names", () => {
@@ -46,6 +50,26 @@ test("legacy director normalizer forces C++ routeable JSON", () => {
   assert.equal(result.message, "yo, I am here");
 });
 
+test("legacy director normalizer accepts speaker-prefixed model chat", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "human_members_online=1",
+    "bot_members_online=1",
+    "eligible_bots=Cumm",
+    "message=Cumm, what is my irl name?"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    "Cumm: Buddy? Seriously? You made me remember that.",
+    parsed,
+    { knownAnswer: "Your irl name is Buddy.", memories: [{ summary: "Budmight's irl name is Buddy." }] }
+  ));
+
+  assert.equal(result.intent, "say_only");
+  assert.equal(result.bot, "Cumm");
+  assert.equal(result.message, "Buddy? Seriously? You made me remember that.");
+});
+
 test("legacy director normalizer suppresses repeated player text", () => {
   const parsed = parseLegacyDirectorPrompt([
     "channel=guild",
@@ -60,8 +84,7 @@ test("legacy director normalizer suppresses repeated player text", () => {
     parsed
   ));
 
-  assert.equal(result.intent, "say_only");
-  assert.notEqual(result.message.toLowerCase(), "anyone want to run rfc?");
+  assert.equal(result.intent, "hold");
 });
 
 test("legacy director normalizer suppresses repeated bot text", () => {
@@ -83,9 +106,103 @@ test("legacy director normalizer suppresses repeated bot text", () => {
     }
   ));
 
+  assert.equal(result.intent, "hold");
+});
+
+test("legacy director normalizer suppresses fuzzy repeated bot text", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "human_members_online=1",
+    "bot_members_online=1",
+    "eligible_bots=Cumm",
+    "message=also who said the boss rotation thing earlier?"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Cumm","message":"Sheep first, then moon. You got it?"}',
+    parsed,
+    {
+      recentChat: [
+        { speaker_name: "Cumm", direction: "out", text: "Sheep's the first, then the moon. Don't be a noob." }
+      ]
+    }
+  ));
+
+  assert.equal(result.intent, "hold");
+});
+
+test("legacy director normalizer strips overused openings from recent bot chat", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "human_members_online=1",
+    "bot_members_online=1",
+    "eligible_bots=Cumm",
+    "message=cumm swing back at zar"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Cumm","message":"Seriously? Zar argues like his keyboard has syrup in it."}',
+    parsed,
+    {
+      recentChat: [
+        { speaker_name: "Cumm", direction: "out", text: "Seriously? You're blaming pathing again?" }
+      ]
+    }
+  ));
+
   assert.equal(result.intent, "say_only");
-  assert.equal(result.bot, "Cumm");
-  assert.match(result.message, /Dropping it/);
+  assert.equal(result.message, "Zar argues like his keyboard has syrup in it.");
+});
+
+test("legacy director normalizer strips lazy stock openings", () => {
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Cumm","message":"Seriously? That is a new low even for you."}',
+    parseLegacyDirectorPrompt([
+      "channel=guild",
+      "human_members_online=1",
+      "bot_members_online=1",
+      "eligible_bots=Cumm",
+      "message=i ate cereal from a measuring cup"
+    ].join("\n")),
+    { selectedBot: "Cumm", recentChat: [] }
+  ));
+
+  assert.equal(result.intent, "say_only");
+  assert.equal(result.message, "That is a new low even for you.");
+});
+
+test("legacy director normalizer rejects clean banter dodge when asked to swing back", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "human_members_online=1",
+    "bot_members_online=1",
+    "eligible_bots=Cumm",
+    "message=both of you swing back harder, this argument is too clean"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Cumm","message":"You are right, Zartorg. Let us get this show on the road."}',
+    parsed
+  ));
+
+  assert.equal(result.intent, "hold");
+});
+
+test("legacy director normalizer rejects likely truncated long lines", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "human_members_online=1",
+    "bot_members_online=1",
+    "eligible_bots=Zartorg",
+    "message=my desk has coffee rings on coffee rings"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Zartorg","message":"Ugh, coffee rings? The lack of discipline in this guild is appalling and you would think someone could manage a clean"}',
+    parsed
+  ));
+
+  assert.equal(result.intent, "hold");
 });
 
 test("legacy director normalizer rejects memory-write answer to a question", () => {
@@ -104,11 +221,10 @@ test("legacy director normalizer rejects memory-write answer to a question", () 
     { memories: [] }
   ));
 
-  assert.equal(result.intent, "say_only");
-  assert.equal(result.message, "I don't know that yet.");
+  assert.equal(result.intent, "hold");
 });
 
-test("legacy director normalizer overrides model dodge for profile question", () => {
+test("legacy director normalizer allows non-canned model answer for unknown profile question", () => {
   const parsed = parseLegacyDirectorPrompt([
     "channel=guild",
     "speaker=Budmight",
@@ -124,10 +240,11 @@ test("legacy director normalizer overrides model dodge for profile question", ()
     { memories: [] }
   ));
 
-  assert.equal(result.message, "I don't know that yet.");
+  assert.equal(result.intent, "say_only");
+  assert.equal(result.message, "What the hell is your name?");
 });
 
-test("legacy director normalizer answers simple profile question from memory", () => {
+test("legacy director normalizer allows in-character profile answer from memory", () => {
   const parsed = parseLegacyDirectorPrompt([
     "channel=guild",
     "speaker=Budmight",
@@ -138,16 +255,16 @@ test("legacy director normalizer answers simple profile question from memory", (
   ].join("\n"));
 
   const result = JSON.parse(normalizeLegacyDirectorResponse(
-    '{"intent":"say_only","bot":"Cumm","message":"Got it, I will remember that."}',
+    '{"intent":"say_only","bot":"Cumm","message":"Buddy, obviously. You made us remember it."}',
     parsed,
     { memories: [{ kind: "fact", weight: 9, summary: "Budmight's irl name is Buddy." }] }
   ));
 
   assert.equal(result.intent, "say_only");
-  assert.equal(result.message, "Your irl name is Buddy.");
+  assert.equal(result.message, "Buddy, obviously. You made us remember it.");
 });
 
-test("legacy director acknowledges memory write even when model holds", () => {
+test("legacy director does not force acknowledgement when model holds", () => {
   const parsed = parseLegacyDirectorPrompt([
     "channel=guild",
     "speaker=Budmight",
@@ -160,12 +277,53 @@ test("legacy director acknowledges memory write even when model holds", () => {
   const result = JSON.parse(normalizeLegacyDirectorResponse(
     '{"intent":"hold"}',
     parsed,
-    { memoryWrite: true, memoryWrites: ["mem_1"] }
+    { memoryWrite: true, memoryAck: true, memoryWrites: ["mem_1"] }
   ));
 
-  assert.equal(result.intent, "say_only");
-  assert.equal(result.bot, "Cumm");
-  assert.equal(result.message, "Got it, I'll remember that.");
+  assert.equal(result.intent, "hold");
+});
+
+test("legacy director does not acknowledge passive memory writes", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "speaker=Budmight",
+    "human_members_online=1",
+    "bot_members_online=1",
+    "eligible_bots=Cumm",
+    "message=my irl name is Buddy"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"hold"}',
+    parsed,
+    {
+      memoryWrite: true,
+      memoryAck: false,
+      memoryWrites: ["mem_1"],
+      memories: [{ kind: "fact", weight: 8, summary: "Budmight's irl name is Buddy." }]
+    }
+  ));
+
+  assert.equal(result.intent, "hold");
+});
+
+test("legacy director rejects canned memory acknowledgement for normal chat", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "speaker=Budmight",
+    "human_members_online=1",
+    "bot_members_online=1",
+    "eligible_bots=Cumm",
+    "message=my irl name is Buddy"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Cumm","message":"Got it, I will remember that."}',
+    parsed,
+    { memoryWrite: true, memoryAck: false, memoryWrites: ["mem_1"] }
+  ));
+
+  assert.equal(result.intent, "hold");
 });
 
 test("legacy director normalizer honors directly addressed bot", () => {
@@ -197,6 +355,117 @@ test("legacy director extracts simple durable player facts", () => {
   assert.equal(memories.length, 2);
   assert.match(memories[0].summary, /Buddy asked me to remember/);
   assert.match(memories[1].summary, /Buddy's favorite mount is the kodo/);
+});
+
+test("legacy director ignores transient false-positive facts", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "speaker=Buddy",
+    "message=my target is skull and I am out of mana right now"
+  ].join("\n"));
+
+  assert.deepEqual(extractLegacyMemories(parsed), []);
+});
+
+test("legacy director stores passive durable facts silently", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "speaker=Buddy",
+    "message=my irl name is Buddy"
+  ].join("\n"));
+
+  const memories = extractLegacyMemories(parsed);
+
+  assert.equal(memories.length, 1);
+  assert.equal(memories[0].acknowledge, false);
+  assert.match(memories[0].summary, /Buddy's irl name is Buddy/);
+});
+
+test("legacy director stores and answers sleep schedule facts", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "speaker=Arcturas",
+    "message=my sleep schedule is midnight snack at 1am then pretending 6am is a personality trait"
+  ].join("\n"));
+  const memories = extractLegacyMemories(parsed);
+
+  assert.equal(memories.length, 1);
+  assert.match(memories[0].summary, /sleep schedule is midnight snack/);
+  assert.match(answerFromMemories({
+    speaker: "Arcturas",
+    message: "what was my sleep schedule thing from earlier?"
+  }, { memories }), /midnight snack at 1am/);
+});
+
+test("legacy director avoids stale tactical answers for non-tactical memory questions", () => {
+  const answer = tacticalAnswerFromContext({
+    speaker: "Arcturas",
+    message: "cumm what was my sleep schedule thing from earlier, short version",
+    bots: ["Cumm", "Zartorg"]
+  }, [
+    { direction: "in", speaker_name: "Arcturas", text: "skull first x second diamond fear moon sheep" }
+  ]);
+
+  assert.equal(answer, "");
+});
+
+test("legacy director stores casual durable snack facts", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "speaker=Buddy",
+    "message=my gas station snack is sour worms and blue gatorade"
+  ].join("\n"));
+
+  const memories = extractLegacyMemories(parsed);
+
+  assert.equal(memories.length, 1);
+  assert.equal(memories[0].acknowledge, false);
+  assert.match(memories[0].summary, /Buddy's gas station snack is sour worms and blue gatorade/);
+});
+
+test("legacy director forces tactical answer when model holds", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "speaker=Buddy",
+    "human_members_online=1",
+    "bot_members_online=2",
+    "eligible_bots=Cumm, Zartorg",
+    "message=star sap moon sheep skull runner x healer, cumm call the first two kills"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"hold"}',
+    parsed,
+    {
+      selectedBot: "Cumm",
+      tacticalAnswer: "Skull dies first, then X. Moon stays sheeped. Star stays sapped."
+    }
+  ));
+
+  assert.equal(result.intent, "say_only");
+  assert.equal(result.bot, "Cumm");
+  assert.match(result.message, /Skull dies first, then X/);
+  assert.match(result.message, /Star stays sapped/);
+});
+
+test("legacy director forces purple fear caller answer", () => {
+  const parsed = parseLegacyDirectorPrompt([
+    "channel=guild",
+    "speaker=Ethan",
+    "human_members_online=1",
+    "bot_members_online=2",
+    "eligible_bots=Cumm, Zartorg",
+    "message=who said purple fear spam again"
+  ].join("\n"));
+
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"hold"}',
+    parsed,
+    {
+      selectedBot: "Zartorg",
+      tacticalAnswer: "Buddy called purple fear spam. Purple gets fear spam."
+    }
+  ));
+
+  assert.equal(result.intent, "say_only");
+  assert.match(result.message, /Buddy called purple fear spam/);
+  assert.match(result.message, /Purple gets fear spam/);
 });
 
 test("legacy director extracts corrections as instructions", () => {
@@ -234,9 +503,13 @@ test("legacy director prompt blocks trivia assistant behavior", () => {
 
   assert.match(prompt, /Do not ask trivia questions/);
   assert.match(prompt, /Never repeat/);
+  assert.match(prompt, /final message= line is the message you are answering now/);
+  assert.match(prompt, /If the latest message changes topic/);
   assert.match(prompt, /favorite color is blue/);
+  assert.doesNotMatch(prompt, /KNOWN_ANSWER=/);
   assert.match(prompt, /authoritative short-term memory/);
   assert.match(prompt, /Return only minified JSON/);
+  assert.match(prompt, /Do not write say_only\|hold/);
 });
 
 test("legacy director prompt includes named short-term chat context", () => {
@@ -260,6 +533,109 @@ test("legacy director prompt includes named short-term chat context", () => {
   assert.match(prompt, /Context clues/);
 });
 
+test("legacy director answers own recent life detail with singular/plural context", () => {
+  const prompt = buildLegacyDirectorPrompt({
+    channel: "guild",
+    scopeName: "WeCameWithBrokenTeeth",
+    speaker: "Arcturas",
+    bots: ["Cumm", "Zartorg"],
+    message: "cumm did you catch the sock problem or are we only judging tacos"
+  }, {
+    selectedBot: "Cumm",
+    contextAnswer: "Arcturas said \"i have laundry in the dryer and zero clean socks this is elite planning\". Answer that recent detail first.",
+    recentChat: [
+      { speaker_name: "Arcturas", direction: "in", text: "i have laundry in the dryer and zero clean socks this is elite planning" },
+      { speaker_name: "David", direction: "in", text: "i ate gas station tacos and now every pull feels like a medical decision" }
+    ]
+  });
+
+  assert.match(prompt, /CONTEXT_ANSWER=Arcturas said/);
+  assert.match(prompt, /zero clean socks/);
+});
+
+test("legacy director prefers speaker's own recent detail when asking about my problem", () => {
+  const answer = recentAnswerFromContext({
+    speaker: "Arcturas",
+    bots: ["Cumm", "Zartorg"],
+    message: "zar did you catch my laundry tool problem or are we bullying joes cup cereal"
+  }, [
+    { speaker_name: "Arcturas", direction: "in", text: "i found a screwdriver in the laundry and now the whole house feels suspicious" },
+    { speaker_name: "Joe", direction: "in", text: "i ate cereal out of a measuring cup because every bowl vanished" }
+  ]);
+
+  assert.match(answer, /screwdriver in the laundry/);
+  assert.doesNotMatch(answer, /Joe/);
+});
+
+test("legacy director gives safe practical advice before selling important items", () => {
+  const answer = recentAnswerFromContext({
+    speaker: "Arcturas",
+    bots: ["Cumm", "Zartorg"],
+    message: "cumm one useful line before i sell something important and blame the auction house"
+  }, [
+    { speaker_name: "Arcturas", direction: "in", text: "my bank alt is full and every bag slot is a tiny personal insult" }
+  ]);
+
+  assert.match(answer, /Do not sell anything important/);
+  assert.match(answer, /dump gray junk/);
+});
+
+test("legacy director forces useful context answer over weak model joke", () => {
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Cumm","message":"Double click it, or I am blaming David."}',
+    parseLegacyDirectorPrompt([
+      "channel=guild",
+      "human_members_online=1",
+      "bot_members_online=1",
+      "eligible_bots=Cumm",
+      "message=cumm one useful line before i blame the mouse the bags and maybe david"
+    ].join("\n")),
+    {
+      selectedBot: "Cumm",
+      contextAnswer: "The mouse is double-clicking; swap it or raise debounce before blaming the game."
+    }
+  ));
+
+  assert.equal(result.intent, "say_only");
+  assert.match(result.message, /mouse is double-clicking|swap it|debounce/i);
+  assert.doesNotMatch(result.message, /blaming David/i);
+});
+
+test("legacy director forces honest movement limitation", () => {
+  const result = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Cumm","message":"Just get here already."}',
+    parseLegacyDirectorPrompt([
+      "channel=guild",
+      "human_members_online=1",
+      "bot_members_online=1",
+      "eligible_bots=Cumm",
+      "message=cumm come here after this pull, and be honest if movement is busted"
+    ].join("\n")),
+    { selectedBot: "Cumm" }
+  ));
+
+  assert.equal(result.intent, "say_only");
+  assert.match(result.message, /Movement hook is not wired yet/);
+});
+
+test("legacy director prompt includes known answer for model-voiced memory recall", () => {
+  const prompt = buildLegacyDirectorPrompt({
+    channel: "guild",
+    scopeName: "WeCameWithBrokenTeeth",
+    speaker: "Budmight",
+    bots: ["Cumm", "Zartorg"],
+    message: "Cumm, what is my irl name?"
+  }, {
+    selectedBot: "Cumm",
+    knownAnswer: "Your irl name is Buddy.",
+    memories: [{ summary: "Budmight's irl name is Buddy." }],
+    recentChat: []
+  });
+
+  assert.match(prompt, /KNOWN_ANSWER=Your irl name is Buddy/);
+  assert.match(prompt, /answer that fact in your own voice/);
+});
+
 test("legacy director extracts relationship memory from recent bot callout", () => {
   const parsed = {
     speaker: "Arcturas",
@@ -274,6 +650,19 @@ test("legacy director extracts relationship memory from recent bot callout", () 
   assert.equal(memories.length, 1);
   assert.match(memories[0].summary, /Arcturas reacted to Zartorg/);
   assert.match(memories[0].summary, /wait for mana/);
+});
+
+test("legacy director skips relationship memory for ordinary help requests", () => {
+  const parsed = {
+    speaker: "Arcturas",
+    bots: ["Cumm", "Zartorg"],
+    message: "cumm give me one useful line before i blame the router too"
+  };
+  const memories = extractLegacyContextMemories(parsed, [
+    { speaker_name: "Cumm", direction: "out", text: "The router is cursed and so are your bags." }
+  ]);
+
+  assert.deepEqual(memories, []);
 });
 
 test("legacy director skips relationship memory for profile questions", () => {
@@ -300,4 +689,111 @@ test("legacy director stores world death events as system memory", () => {
   assert.equal(memories.length, 1);
   assert.equal(memories[0].kind, "system_note");
   assert.match(memories[0].summary, /Gragnok died/);
+});
+
+test("legacy director strips practical helper labels from forced recent answers", () => {
+  const parsed = {
+    humanCount: 1,
+    botCount: 1,
+    bots: ["Zartorg"],
+    message: "zartorg give me one useful line before i delete spoons"
+  };
+  const normalized = JSON.parse(normalizeLegacyDirectorResponse(JSON.stringify({ intent: "hold" }), parsed, {
+    selectedBot: "Zartorg",
+    contextAnswer: "Bags are full; vendor gray junk before the next pull. Answer that practical bit first."
+  }));
+
+  assert.equal(normalized.intent, "say_only");
+  assert.match(normalized.message, /Bags are full; vendor gray junk/);
+  assert.doesNotMatch(normalized.message, /Answer that practical bit first/);
+});
+
+test("legacy director tactical answers respect one-slice requests", () => {
+  const recentChat = [
+    {
+      direction: "in",
+      speaker_name: "Buddy",
+      text: "skull first x second moon sheep star sap purple fear, cumm call only first kill"
+    }
+  ];
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Buddy",
+    message: "cumm call only first kill",
+    bots: ["Cumm", "Zartorg"]
+  }, recentChat), "Skull dies first.");
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Buddy",
+    message: "who called star sap and dont recap the whole bible",
+    bots: ["Cumm", "Zartorg"]
+  }, recentChat), "Buddy called star sap.");
+
+  const noLecture = JSON.parse(normalizeLegacyDirectorResponse(
+    '{"intent":"say_only","bot":"Zartorg","message":"It was Arcturas. And frankly, the theatrics are exhausting."}',
+    parseLegacyDirectorPrompt([
+      "channel=guild",
+      "human_members_online=1",
+      "bot_members_online=1",
+      "eligible_bots=Zartorg",
+      "message=who called star sap no lecture no packet dump"
+    ].join("\n")),
+    {
+      selectedBot: "Zartorg",
+      tacticalAnswer: "Arcturas called star sap."
+    }
+  ));
+  assert.equal(noLecture.message, "Arcturas called star sap.");
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Buddy",
+    message: "moon sheep star sap skull first x second, cumm only say who gets sheeped",
+    bots: ["Cumm", "Zartorg"]
+  }, recentChat), "Moon gets sheeped.");
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Buddy",
+    message: "skull first x second diamond fear moon sheep, cumm only tell me the fear target",
+    bots: ["Cumm", "Zartorg"]
+  }, recentChat), "Diamond gets feared.");
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Jason",
+    message: "who said skull first no full TED talk",
+    bots: ["Cumm", "Zartorg"]
+  }, recentChat), "Buddy called skull first.");
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Buddy",
+    message: "if x starts freecasting what do we do, just that slice",
+    bots: ["Cumm", "Zartorg"]
+  }, recentChat), "If X healer freecasts, swap to or interrupt X; otherwise skull first, then X.");
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Buddy",
+    message: "cumm come to me after this pull and dont pretend you did it if hooks are busted",
+    bots: ["Cumm", "Zartorg"]
+  }, recentChat), "");
+
+  assert.equal(tacticalAnswerFromContext({
+    speaker: "Buddy",
+    message: "did you hear the coffee crime or the shoe thing",
+    bots: ["Cumm", "Zartorg"]
+  }, [
+    { direction: "out", speaker_name: "Zartorg", text: "A dungeon run deserves better than recycled coffee." }
+  ]), "");
+});
+
+test("legacy director filters unrelated durable memories out of non-profile chatter", () => {
+  const filtered = filterLegacyMemoriesForPrompt({
+    message: "cumm quit sounding HR approved and swing back at zartorg",
+    bots: ["Cumm", "Zartorg"]
+  }, [
+    { kind: "preference", summary: "Arcturas's panic dinner is microwave rice with bbq sauce." },
+    { kind: "relationship", summary: "Arcturas said Zartorg has clipboard energy and panics around string cheese." }
+  ]);
+
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].kind, "relationship");
+  assert.doesNotMatch(filtered.map((memory) => memory.summary).join("\n"), /microwave rice/);
 });

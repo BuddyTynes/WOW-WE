@@ -6,6 +6,7 @@ LLMNpcDirector.Enable = 1
 
 # Ollama-compatible bridge endpoint. The current bridge accepts /api/generate.
 LLMNpcDirector.BridgeUrl = http://wow-llm-bridge:11434/api/generate
+LLMNpcDirector.SpiceUrl = http://wow-llm-bridge:11434/api/spice/random
 LLMNpcDirector.Model = wow-llm-director
 LLMNpcDirector.HttpTimeoutMs = 6000
 
@@ -15,6 +16,22 @@ LLMNpcDirector.GuildCooldownMs = 3000
 LLMNpcDirector.GroupCooldownMs = 5000
 LLMNpcDirector.ChannelCooldownMs = 20000
 LLMNpcDirector.DeathCooldownMs = 5000
+
+# Cheap no-model ambient chatter. This samples exact-safe real chat-log lines
+# from the bridge and routes them through an online bot in the World channel.
+LLMNpcDirector.AmbientSpiceEnable = 1
+LLMNpcDirector.AmbientSpiceIntervalMs = 120000
+LLMNpcDirector.AmbientSpiceChancePct = 40
+LLMNpcDirector.AmbientSpiceMinQuality = 60
+LLMNpcDirector.AmbientSpiceOnlyWithHumans = 1
+
+# Structured action lane. When enabled, party/raid chat is also sent to the
+# bridge action endpoint. RouteActionPlans must also be enabled before approved
+# allowlisted commands are executed through playerbot HandleCommand.
+LLMNpcDirector.ActionDirectorEnable = 0
+LLMNpcDirector.ActionDirectorUrl = http://wow-llm-bridge:11434/api/action/event
+LLMNpcDirector.ActionDirectorTimeoutMs = 2500
+LLMNpcDirector.RouteActionPlans = 0
 
 # Route validated bridge say_only JSON responses back through eligible bots on
 # the game thread.

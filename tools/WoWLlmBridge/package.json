@@ -8,7 +8,9 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test",
-    "smoke": "node scripts/smoke.js"
+    "realness": "node scripts/realness-smoke.js",
+    "smoke": "node scripts/smoke.js",
+    "action-smoke": "node scripts/action-director-smoke.js"
   },
   "engines": {
     "node": ">=18.0.0"

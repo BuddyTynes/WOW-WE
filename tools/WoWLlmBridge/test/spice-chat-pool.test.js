@@ -105,14 +105,15 @@ test("MemoryStore imports Spice seed idempotently and returns inspiration", asyn
   const seedsDir = tempDir("wow-llm-spice-seeds-");
   writeSeed(seedsDir, [
     seedRecord(),
-    seedRecord({ line_hash: "line_two", message: "rip, that pull was doomed", channel_type: "world", channel_name: "world" })
+    seedRecord({ line_hash: "line_two", message: "rip, that pull was doomed", channel_type: "world", channel_name: "world" }),
+    seedRecord({ line_hash: "line_three", message: "buddy whispered this one", channel_type: "whisper", exact_safe: false })
   ]);
   const store = new MemoryStore({ dbPath: tempDb(), seedsDir });
   await store.init();
   await store.importBundledSpiceSeeds();
 
   const counts = await store.getCounts();
-  assert.equal(counts.spice_lines, 2);
+  assert.equal(counts.spice_lines, 3);
 
   const result = await store.getChatInspiration({
     channel_type: "guild",
@@ -124,6 +125,19 @@ test("MemoryStore imports Spice seed idempotently and returns inspiration", asyn
   assert.equal(result.ok, true);
   assert.ok(result.data.lines.length >= 1);
   assert.ok(result.data.lines.some((line) => line.allow_exact));
+
+  const ambient = await store.getChatInspiration({
+    channel_type: "whisper",
+    limit: 3,
+    min_quality: 50,
+    exact_chance: 100,
+    exact_safe_only: true
+  });
+
+  assert.equal(ambient.ok, true);
+  assert.ok(ambient.data.lines.length >= 1);
+  assert.ok(ambient.data.lines.every((line) => line.exact_safe));
+  assert.ok(!ambient.data.lines.some((line) => line.line_hash === "line_three"));
 });
 
 test("legacy director prompt includes Spice style examples", () => {

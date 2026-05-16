@@ -58,7 +58,16 @@ class SqliteCliDatabase {
     return new Promise((resolve, reject) => {
       execFile(
         "sqlite3",
-        ["-batch", "-header", "-separator", FIELD_SEPARATOR, "-newline", ROW_SEPARATOR, this.dbPath, sql],
+        [
+          "-batch",
+          "-cmd", ".timeout 5000",
+          "-cmd", "PRAGMA foreign_keys = ON;",
+          "-header",
+          "-separator", FIELD_SEPARATOR,
+          "-newline", ROW_SEPARATOR,
+          this.dbPath,
+          sql
+        ],
         { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
         (error, stdout, stderr) => {
           if (error) {

@@ -1,0 +1,22 @@
+# Complaining
+
+Tracks responses to player frustration in general, not only WoW complaints: grind, lag, loot, travel, bags, deaths, bad drops, bad hardware, chores, hunger, sleep, life annoyances, and people playing badly.
+
+| Date / Pass | Scenario | Representative Replies | Score | Notes / Next Fix |
+|---|---|---|---:|---|
+| 2026-05-15 12:12 live pass | Murloc drops, lag eating hamstring, player threatens to vendor bags. | Good first two; final prompt held. | 6/10 | Usable reactions, but missed the escalation/request for useful encouragement. |
+| 2026-05-15 12:19 live pass | Harpy quest drops, broken bags, fishing-main threat. | "Broken bags? Honestly, I'd be suing..." then repeat was held. | 6/10 | Correctly blocked stale repeat, but still wasted a good "talk me down" moment. |
+| 2026-05-15 12:21 live pass | Spider legs/no drops, gray spoon bags, threatened deleting boots. | "The drops are abysmal. But don't think this means we're giving up!" | 7/10 | Better final response. First spider prompt produced malformed JSON and held. Retry path added after this pass, not scored yet. |
+| 2026-05-15 12:26 heartbeat | Cave respawns, slow sword skill, kobold rent/snack complaints, and threat to hearth/trash quest. | "You're this close to abandoning a quest because of a few kobolds?" | 7/10 | Cleaner after memory filtering; still somewhat generic and food fixation leaked into one reply. |
+| 2026-05-15 12:36 heartbeat | Sinking chair, crackly headset, rage-ordering a chair. | "Headset sounds like it's begging for mercy." / "Perhaps a proper chair would be a start." | 7/10 | General non-WoW complaining works. Still a bit verbose and Zartorg overuses "Honestly/Seriously." |
+
+Latest focus:
+
+- Use retry path for malformed JSON and empty message rejects.
+- Keep concise complaint banter without generic motivational speeches.
+| 2026-05-15 13:52 heartbeat + targeted rerun | Lag/bags/runback/pathing complaints plus request for one useful line. | "Perhaps a trip to Orgrimmar is in order to declutter your life." | 7/10 | More useful than before and stays in guild voice. Still too theatrical and overuses "Seriously". Next fix: concise actionable answer before the jab. |
+| 2026-05-15 14:12 heartbeat | Headset crackle, bad drop rate, boar reset through tree, then asked for one useful line before blaming cables. | "Pathing is the problem; slow the pull and finish runners before they leave." | 8/10 | Practical-answer heuristic grounded the useful line in recent pathing complaint instead of inventing random map advice. Still uses "Seriously" in early complaint replies; opener variety remains a shared fix. |
+| 2026-05-15 14:35 heartbeat | Cursed bags, headset cable snagging, and asked for one useful line before vendoring a quest item. | "Dump the trash first, then check for quest text." | 6/10 | The useful-line answer improved and avoided leaking internal labels, but two earlier complaint replies held after lazy-opening rejection and the final wording almost encouraged vendoring first. Next fix: stronger non-canned complaint retry that keeps one useful action without risky wording. |
+| 2026-05-15 14:39 targeted rerun | Full bank alt, sticky spacebar, then asked for one useful line before selling something important. | "You're kidding, right? I can barely move with all that junk!" / "Dump the gray stuff first, ya cheapskate." | 7/10 | Changing lazy openings from reject-to-hold into strip-and-keep restored livelier complaint replies. Useful line is safer and concise, but still needs to explicitly say "do not sell important stuff" more often. |
+| 2026-05-15 14:45 heartbeat + targeted rerun | Runback/bag crime scene and mouse double-click buying arrows; asked for one useful line before blaming bags, mouse, and David. | "The mouse is double-clicking; swap it or raise debounce before blaming the game." | 8/10 | Useful-line forcing now grounds the answer in the actual mouse/bag context instead of letting the model joke. Next fix: make forced practical answers sound less template-like while keeping the concrete fix first. |
+| 2026-05-15 14:51 heartbeat | Loot hate, bags near crime documentary status, server lag on click, then asked for one useful line before blaming everything. | "Bags are full; vendor gray junk before the next pull." | 8/10 | Correctly answered with a concrete practical fix and no generic pep talk. Still template-like; next fix is add light persona after the useful action without losing the action. |

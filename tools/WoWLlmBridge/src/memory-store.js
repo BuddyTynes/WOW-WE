@@ -18,6 +18,14 @@ const INTENTS = new Set([
   "say_only", "follow_leader", "assist_target", "hold_position", "move_closer",
   "heal_priority", "avoid_combat", "need_help"
 ]);
+const SOCIAL_FLAG_TYPES = new Set([
+  "kos", "disliked", "trusted", "protected", "rival", "owes_favor",
+  "owes_revenge", "avoid"
+]);
+const ACTION_COMMANDS = new Set([
+  "attack", "follow", "stay", "flee", "runaway", "max dps",
+  "rti skull", "rti cross", "rti cc moon", "rti cc star", "rti cc diamond"
+]);
 
 function ok(data) {
   return { ok: true, error: null, data };
@@ -180,6 +188,98 @@ function rowToSpiceLine(row, exactChance) {
   };
 }
 
+function rowToBotRuntimeState(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    bot_guid: asInt(row.bot_guid),
+    map_id: asInt(row.map_id),
+    zone_id: asInt(row.zone_id),
+    area_id: asInt(row.area_id),
+    position_x: asFloat(row.position_x),
+    position_y: asFloat(row.position_y),
+    position_z: asFloat(row.position_z),
+    level: asInt(row.level),
+    class: row.class,
+    race: row.race,
+    guild_id: asInt(row.guild_id),
+    party_id: row.party_id,
+    current_activity: row.current_activity,
+    current_goal: row.current_goal,
+    combat_state: row.combat_state,
+    target_guid: asInt(row.target_guid),
+    leader_guid: asInt(row.leader_guid),
+    last_snapshot_at: row.last_snapshot_at,
+    metadata: parseJson(row.metadata_json, {})
+  };
+}
+
+function rowToPlayerRuntimeSnapshot(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    player_guid: asInt(row.player_guid),
+    account_id: asInt(row.account_id),
+    name: row.name,
+    level: asInt(row.level),
+    class: row.class,
+    race: row.race,
+    guild_id: asInt(row.guild_id),
+    guild_rank: row.guild_rank,
+    map_id: asInt(row.map_id),
+    zone_id: asInt(row.zone_id),
+    area_id: asInt(row.area_id),
+    gear_score: asInt(row.gear_score),
+    equipped_summary: parseJson(row.equipped_summary_json, {}),
+    last_seen_at: row.last_seen_at,
+    metadata: parseJson(row.metadata_json, {})
+  };
+}
+
+function rowToSocialFlag(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    flag_id: row.flag_id,
+    bot_guid: asInt(row.bot_guid),
+    target_player_guid: asInt(row.target_player_guid),
+    target_bot_guid: asInt(row.target_bot_guid),
+    guild_id: asInt(row.guild_id),
+    flag_type: row.flag_type,
+    severity: asInt(row.severity),
+    reason: row.reason,
+    evidence_event_id: row.evidence_event_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    expires_at: row.expires_at,
+    metadata: parseJson(row.metadata_json, {})
+  };
+}
+
+function rowToActionPlan(row) {
+  if (!row) {
+    return null;
+  }
+  const plan = parseJson(row.plan_json, {});
+  return {
+    action_plan_id: row.action_plan_id,
+    event_id: row.event_id,
+    bot_guid: asInt(row.bot_guid),
+    speaker_player_guid: asInt(row.speaker_player_guid),
+    channel_type: row.channel_type,
+    intent: row.intent,
+    plan,
+    approved: asBool(row.approved),
+    rejection_reason: row.rejection_reason,
+    confidence: asFloat(row.confidence),
+    ttl_ms: asInt(row.ttl_ms),
+    created_at: row.created_at
+  };
+}
+
 class MemoryStore {
   constructor(options = {}) {
     this.db = options.db || new SqliteCliDatabase(options.dbPath || "./data/llm_memory.sqlite3");
@@ -232,40 +332,24 @@ class MemoryStore {
       .filter(Boolean)
       .map((line) => JSON.parse(line));
     const chunks = [];
-    for (let i = 0; i < records.length; i += 150) {
-      chunks.push(records.slice(i, i + 150));
+    for (let i = 0; i < records.length; i += 20) {
+      chunks.push(records.slice(i, i + 20));
     }
     for (const chunk of chunks) {
       const values = chunk.map((record) => `(
-        ${sqlLiteral(record.line_hash)}, ${sqlLiteral(record.source_hash)}, ${sqlLiteral(record.source_file)},
-        ${sqlLiteral(record.source_table)}, ${sqlLiteral(record.source_key)}, ${sqlLiteral(record.message)},
-        ${sqlLiteral(record.speaker)}, ${sqlLiteral(record.channel_type)}, ${sqlLiteral(record.channel_name)},
-        ${sqlLiteral(record.event_type)}, ${sqlLiteral(asInt(record.event_timestamp))},
-        ${sqlLiteral(clamp(record.quality_score, 0, 100, 50))}, ${sqlLiteral(record.exact_safe ? 1 : 0)},
-        ${sqlLiteral(jsonText(record.tags, []))}, ${sqlLiteral(jsonText(record.metadata, {}))}
-      )`).join(",");
+          ${sqlLiteral(record.line_hash)}, ${sqlLiteral(record.source_hash)}, ${sqlLiteral(record.source_file)},
+          ${sqlLiteral(record.source_table)}, ${sqlLiteral(record.source_key)}, ${sqlLiteral(record.message)},
+          ${sqlLiteral(record.speaker)}, ${sqlLiteral(record.channel_type)}, ${sqlLiteral(record.channel_name)},
+          ${sqlLiteral(record.event_type)}, ${sqlLiteral(asInt(record.event_timestamp))},
+          ${sqlLiteral(clamp(record.quality_score, 0, 100, 50))}, ${sqlLiteral(record.exact_safe ? 1 : 0)},
+          ${sqlLiteral(jsonText(record.tags, []))}, ${sqlLiteral(jsonText(record.metadata, {}))}
+        )`).join(",");
       await this.db.exec(`
-        INSERT INTO spice_chat_lines (
+        INSERT OR REPLACE INTO spice_chat_lines (
           line_hash, source_hash, source_file, source_table, source_key, message,
           speaker, channel_type, channel_name, event_type, event_timestamp,
           quality_score, exact_safe, tags_json, metadata_json
-        ) VALUES ${values}
-        ON CONFLICT(line_hash) DO UPDATE SET
-          source_hash = excluded.source_hash,
-          source_file = excluded.source_file,
-          source_table = excluded.source_table,
-          source_key = excluded.source_key,
-          message = excluded.message,
-          speaker = excluded.speaker,
-          channel_type = excluded.channel_type,
-          channel_name = excluded.channel_name,
-          event_type = excluded.event_type,
-          event_timestamp = excluded.event_timestamp,
-          quality_score = excluded.quality_score,
-          exact_safe = excluded.exact_safe,
-          tags_json = excluded.tags_json,
-          metadata_json = excluded.metadata_json,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+        ) VALUES ${values};
       `);
     }
     await this.db.exec(`
@@ -298,14 +382,16 @@ class MemoryStore {
   async getCounts() {
     await this.ensureReady();
     const row = await this.db.get(
-      "SELECT (SELECT COUNT(*) FROM bot_profiles) AS bots, (SELECT COUNT(*) FROM player_profiles) AS players, (SELECT COUNT(*) FROM memories) AS memories, (SELECT COUNT(*) FROM event_log) AS events, (SELECT COUNT(*) FROM spice_chat_lines) AS spice_lines;"
+      "SELECT (SELECT COUNT(*) FROM bot_profiles) AS bots, (SELECT COUNT(*) FROM player_profiles) AS players, (SELECT COUNT(*) FROM memories) AS memories, (SELECT COUNT(*) FROM event_log) AS events, (SELECT COUNT(*) FROM spice_chat_lines) AS spice_lines, (SELECT COUNT(*) FROM bot_action_plans) AS action_plans, (SELECT COUNT(*) FROM bot_action_results) AS action_results;"
     );
     return {
       bots: asInt(row.bots) || 0,
       players: asInt(row.players) || 0,
       memories: asInt(row.memories) || 0,
       events: asInt(row.events) || 0,
-      spice_lines: asInt(row.spice_lines) || 0
+      spice_lines: asInt(row.spice_lines) || 0,
+      action_plans: asInt(row.action_plans) || 0,
+      action_results: asInt(row.action_results) || 0
     };
   }
 
@@ -706,17 +792,20 @@ class MemoryStore {
     }
     const minQuality = clamp(input.min_quality, 0, 100, 50);
     const exactChance = clamp(input.exact_chance, 0, 100, 15);
+    const exactSafeOnly = asBool(input.exact_safe_only);
     const channel = CHANNEL_TYPES.has(input.channel_type) ? input.channel_type : "channel";
     const channels = channel === "world" || channel === "channel"
       ? ["world", "channel"]
       : [channel, "channel", "world"];
     const quotedChannels = channels.map(sqlLiteral).join(",");
+    const exactSafeFilter = exactSafeOnly ? "AND exact_safe = 1" : "";
     let rows = await this.db.query(`
       SELECT line_hash, message, speaker, channel_type, channel_name, event_type,
              quality_score, exact_safe, tags_json
       FROM spice_chat_lines
       WHERE quality_score >= ${sqlLiteral(minQuality)}
         AND channel_type IN (${quotedChannels})
+        ${exactSafeFilter}
       ORDER BY (quality_score + (abs(random()) % 25)) DESC
       LIMIT ${limit};
     `);
@@ -726,6 +815,7 @@ class MemoryStore {
                quality_score, exact_safe, tags_json
         FROM spice_chat_lines
         WHERE quality_score >= ${sqlLiteral(minQuality)}
+          ${exactSafeFilter}
         ORDER BY (quality_score + (abs(random()) % 25)) DESC
         LIMIT ${limit};
       `);
@@ -740,6 +830,295 @@ class MemoryStore {
       `);
     }
     return ok({ lines: rows.map((row) => rowToSpiceLine(row, exactChance)) });
+  }
+
+  async upsertRuntimeSnapshot(input = {}) {
+    await this.ensureReady();
+    const bots = [];
+    if (input.bot) {
+      bots.push(input.bot);
+    }
+    if (Array.isArray(input.bots)) {
+      bots.push(...input.bots);
+    }
+    const players = [];
+    if (input.player) {
+      players.push(input.player);
+    }
+    if (input.speaker) {
+      players.push(input.speaker);
+    }
+    if (Array.isArray(input.players)) {
+      players.push(...input.players);
+    }
+    const botResults = [];
+    for (const bot of bots) {
+      const result = await this.upsertBotRuntimeState({
+        ...bot,
+        party_id: bot.party_id || input.party_id || input.party?.party_id || input.party?.id,
+        leader_guid: bot.leader_guid || input.party?.leader_guid || input.party?.leaderGuid,
+        metadata: {
+          ...(bot.metadata || {}),
+          snapshot_metadata: input.metadata || {}
+        }
+      });
+      if (!result.ok) {
+        return result;
+      }
+      botResults.push(result.data);
+    }
+    const playerResults = [];
+    for (const player of players) {
+      const result = await this.upsertPlayerRuntimeSnapshot({
+        ...player,
+        party_id: player.party_id || input.party_id || input.party?.party_id || input.party?.id,
+        metadata: {
+          ...(player.metadata || {}),
+          snapshot_metadata: input.metadata || {}
+        }
+      });
+      if (!result.ok) {
+        return result;
+      }
+      playerResults.push(result.data);
+    }
+    if (botResults.length === 0 && playerResults.length === 0) {
+      return fail("invalid_request", "at least one bot or player snapshot is required");
+    }
+    return ok({ bots: botResults, players: playerResults });
+  }
+
+  async upsertBotRuntimeState(input) {
+    await this.ensureReady();
+    const botGuid = asInt(input.bot_guid || input.guid);
+    if (!botGuid) {
+      return fail("invalid_request", "bot_guid is required");
+    }
+    if (input.name) {
+      await this.upsertBotProfile({
+        bot_guid: botGuid,
+        name: input.name,
+        race: input.race,
+        class: input.class,
+        tier: input.tier,
+        enabled: input.enabled !== false,
+        metadata: input.profile_metadata || {}
+      });
+    }
+    const lastSnapshotAt = input.last_snapshot_at || input.last_seen_at || new Date().toISOString();
+    await this.db.exec(`
+      INSERT OR REPLACE INTO bot_runtime_state (
+        bot_guid, map_id, zone_id, area_id, position_x, position_y, position_z,
+        level, class, race, guild_id, party_id, current_activity, current_goal,
+        combat_state, target_guid, leader_guid, last_snapshot_at, metadata_json
+      ) VALUES (
+        ${sqlLiteral(botGuid)}, ${sqlLiteral(asInt(input.map_id))}, ${sqlLiteral(asInt(input.zone_id))},
+        ${sqlLiteral(asInt(input.area_id))}, ${sqlLiteral(asFloat(input.position_x ?? input.x))},
+        ${sqlLiteral(asFloat(input.position_y ?? input.y))}, ${sqlLiteral(asFloat(input.position_z ?? input.z))},
+        ${sqlLiteral(asInt(input.level))}, ${sqlLiteral(input.class)}, ${sqlLiteral(input.race)},
+        ${sqlLiteral(asInt(input.guild_id))}, ${sqlLiteral(input.party_id)}, ${sqlLiteral(input.current_activity)},
+        ${sqlLiteral(input.current_goal)}, ${sqlLiteral(input.combat_state)}, ${sqlLiteral(asInt(input.target_guid))},
+        ${sqlLiteral(asInt(input.leader_guid))}, ${sqlLiteral(lastSnapshotAt)},
+        ${sqlLiteral(jsonText(input.metadata, {}))}
+      );
+    `);
+    const row = await this.db.get("SELECT * FROM bot_runtime_state WHERE bot_guid = ?;", [botGuid]);
+    return ok(rowToBotRuntimeState(row));
+  }
+
+  async getBotRuntimeState(input) {
+    await this.ensureReady();
+    const botGuid = asInt(input.bot_guid || input.guid);
+    if (!botGuid) {
+      return fail("invalid_request", "bot_guid is required");
+    }
+    const row = await this.db.get("SELECT * FROM bot_runtime_state WHERE bot_guid = ?;", [botGuid]);
+    const state = rowToBotRuntimeState(row);
+    return state ? ok(state) : fail("not_found", "Bot runtime state not found");
+  }
+
+  async upsertPlayerRuntimeSnapshot(input) {
+    await this.ensureReady();
+    const playerGuid = asInt(input.player_guid || input.guid);
+    if (!playerGuid || !input.name) {
+      return fail("invalid_request", "player_guid and name are required");
+    }
+    await this.upsertPlayerProfile({
+      player_guid: playerGuid,
+      account_id: asInt(input.account_id),
+      name: input.name,
+      metadata: input.profile_metadata || {}
+    });
+    const lastSeenAt = input.last_seen_at || input.last_snapshot_at || new Date().toISOString();
+    await this.db.exec(`
+      INSERT OR REPLACE INTO player_runtime_snapshots (
+        player_guid, account_id, name, level, class, race, guild_id, guild_rank,
+        map_id, zone_id, area_id, gear_score, equipped_summary_json, last_seen_at,
+        metadata_json
+      ) VALUES (
+        ${sqlLiteral(playerGuid)}, ${sqlLiteral(asInt(input.account_id))}, ${sqlLiteral(input.name)},
+        ${sqlLiteral(asInt(input.level))}, ${sqlLiteral(input.class)}, ${sqlLiteral(input.race)},
+        ${sqlLiteral(asInt(input.guild_id))}, ${sqlLiteral(input.guild_rank)},
+        ${sqlLiteral(asInt(input.map_id))}, ${sqlLiteral(asInt(input.zone_id))},
+        ${sqlLiteral(asInt(input.area_id))}, ${sqlLiteral(asInt(input.gear_score))},
+        ${sqlLiteral(jsonText(input.equipped_summary || input.gear_summary, {}))},
+        ${sqlLiteral(lastSeenAt)}, ${sqlLiteral(jsonText(input.metadata, {}))}
+      );
+    `);
+    const row = await this.db.get("SELECT * FROM player_runtime_snapshots WHERE player_guid = ?;", [playerGuid]);
+    return ok(rowToPlayerRuntimeSnapshot(row));
+  }
+
+  async getPlayerRuntimeSnapshot(input) {
+    await this.ensureReady();
+    const playerGuid = asInt(input.player_guid || input.guid);
+    if (!playerGuid) {
+      return fail("invalid_request", "player_guid is required");
+    }
+    const row = await this.db.get("SELECT * FROM player_runtime_snapshots WHERE player_guid = ?;", [playerGuid]);
+    const snapshot = rowToPlayerRuntimeSnapshot(row);
+    return snapshot ? ok(snapshot) : fail("not_found", "Player runtime snapshot not found");
+  }
+
+  async upsertSocialFlag(input) {
+    await this.ensureReady();
+    const botGuid = asInt(input.bot_guid);
+    const flagType = String(input.flag_type || "").trim().toLowerCase();
+    const reason = String(input.reason || "").trim();
+    if (!botGuid || !SOCIAL_FLAG_TYPES.has(flagType) || reason.length < 3) {
+      return fail("invalid_request", "bot_guid, allowed flag_type, and reason are required");
+    }
+    if (!asInt(input.target_player_guid) && !asInt(input.target_bot_guid) && !asInt(input.guild_id)) {
+      return fail("invalid_request", "one target_player_guid, target_bot_guid, or guild_id is required");
+    }
+    const flagId = input.flag_id || randomId("flag");
+    const severity = clamp(input.severity, 1, 10, 5);
+    await this.db.exec(`
+      INSERT OR REPLACE INTO bot_social_flags (
+        flag_id, bot_guid, target_player_guid, target_bot_guid, guild_id, flag_type,
+        severity, reason, evidence_event_id, expires_at, metadata_json
+      ) VALUES (
+        ${sqlLiteral(flagId)}, ${sqlLiteral(botGuid)}, ${sqlLiteral(asInt(input.target_player_guid))},
+        ${sqlLiteral(asInt(input.target_bot_guid))}, ${sqlLiteral(asInt(input.guild_id))},
+        ${sqlLiteral(flagType)}, ${sqlLiteral(severity)}, ${sqlLiteral(reason.slice(0, 500))},
+        ${sqlLiteral(input.evidence_event_id || input.event_id)}, ${sqlLiteral(input.expires_at)},
+        ${sqlLiteral(jsonText(input.metadata, {}))}
+      );
+    `);
+    const row = await this.db.get("SELECT * FROM bot_social_flags WHERE flag_id = ?;", [flagId]);
+    return ok(rowToSocialFlag(row));
+  }
+
+  async getSocialFlags(input = {}) {
+    await this.ensureReady();
+    const clauses = ["(expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"];
+    if (input.bot_guid) {
+      clauses.push(`bot_guid = ${sqlLiteral(asInt(input.bot_guid))}`);
+    }
+    if (input.target_player_guid) {
+      clauses.push(`target_player_guid = ${sqlLiteral(asInt(input.target_player_guid))}`);
+    }
+    if (input.target_bot_guid) {
+      clauses.push(`target_bot_guid = ${sqlLiteral(asInt(input.target_bot_guid))}`);
+    }
+    if (input.guild_id) {
+      clauses.push(`guild_id = ${sqlLiteral(asInt(input.guild_id))}`);
+    }
+    if (input.flag_type && SOCIAL_FLAG_TYPES.has(input.flag_type)) {
+      clauses.push(`flag_type = ${sqlLiteral(input.flag_type)}`);
+    }
+    const limit = Math.min(50, Math.max(1, asInt(input.limit) || 12));
+    const rows = await this.db.query(`
+      SELECT *
+      FROM bot_social_flags
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY severity DESC, updated_at DESC
+      LIMIT ${limit};
+    `);
+    return ok({ flags: rows.map(rowToSocialFlag) });
+  }
+
+  async recordActionPlan(input) {
+    await this.ensureReady();
+    const actionPlanId = input.action_plan_id || randomId("ap");
+    const eventId = input.event_id || randomId("evt");
+    const botGuid = asInt(input.bot_guid);
+    if (!botGuid || !input.intent) {
+      return fail("invalid_request", "bot_guid and intent are required");
+    }
+    const plan = {
+      action_plan_id: actionPlanId,
+      event_id: eventId,
+      bot_guid: botGuid,
+      speaker_player_guid: asInt(input.speaker_player_guid),
+      channel_type: input.channel_type,
+      intent: input.intent,
+      say: input.say || "",
+      commands: Array.isArray(input.commands) ? input.commands : [],
+      approved: Boolean(input.approved),
+      rejection_reason: input.rejection_reason || null,
+      confidence: clamp(input.confidence, 0, 1, 0),
+      ttl_ms: Math.round(clamp(input.ttl_ms, 250, 30000, 4000))
+    };
+    await this.db.exec(`
+      INSERT OR REPLACE INTO bot_action_plans (
+        action_plan_id, event_id, bot_guid, speaker_player_guid, channel_type,
+        intent, plan_json, approved, rejection_reason, confidence, ttl_ms
+      ) VALUES (
+        ${sqlLiteral(actionPlanId)}, ${sqlLiteral(eventId)}, ${sqlLiteral(botGuid)},
+        ${sqlLiteral(plan.speaker_player_guid)}, ${sqlLiteral(input.channel_type)},
+        ${sqlLiteral(plan.intent)}, ${sqlLiteral(jsonText(plan, {}))},
+        ${sqlLiteral(plan.approved ? 1 : 0)}, ${sqlLiteral(plan.rejection_reason)},
+        ${sqlLiteral(plan.confidence)}, ${sqlLiteral(plan.ttl_ms)}
+      );
+    `);
+    const row = await this.db.get("SELECT * FROM bot_action_plans WHERE action_plan_id = ?;", [actionPlanId]);
+    return ok(rowToActionPlan(row));
+  }
+
+  async recordActionResult(input) {
+    await this.ensureReady();
+    const actionPlanId = String(input.action_plan_id || "").trim();
+    const botGuid = asInt(input.bot_guid);
+    const command = String(input.command || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!actionPlanId || !botGuid || !ACTION_COMMANDS.has(command)) {
+      return fail("invalid_request", "action_plan_id, bot_guid, and allowed command are required");
+    }
+    const resultId = input.action_result_id || randomId("ar");
+    await this.db.exec(`
+      INSERT INTO bot_action_results (
+        action_result_id, action_plan_id, bot_guid, command, success, result_code,
+        result_message, metadata_json
+      ) VALUES (
+        ${sqlLiteral(resultId)}, ${sqlLiteral(actionPlanId)}, ${sqlLiteral(botGuid)},
+        ${sqlLiteral(command)}, ${sqlLiteral(input.success === false ? 0 : 1)},
+        ${sqlLiteral(input.result_code)}, ${sqlLiteral(input.result_message)},
+        ${sqlLiteral(jsonText(input.metadata, {}))}
+      );
+    `);
+    await this.recordEvent({
+      parent_event_id: actionPlanId,
+      event_kind: "system",
+      channel_type: "system",
+      scope_type: "action_plan",
+      scope_id: actionPlanId,
+      bot_guid: botGuid,
+      source: "action-director",
+      direction: "internal",
+      text: input.result_message,
+      intent: "action_result",
+      success: input.success !== false,
+      error_code: input.success === false ? input.result_code || "action_failed" : null,
+      error_message: input.success === false ? input.result_message : null,
+      payload: { action_result_id: resultId, command }
+    });
+    return ok({
+      action_result_id: resultId,
+      action_plan_id: actionPlanId,
+      bot_guid: botGuid,
+      command,
+      success: input.success !== false
+    });
   }
 
   async writeConversationSummary(input) {
@@ -770,6 +1149,8 @@ module.exports = {
   MEMORY_KINDS,
   EVENT_KINDS,
   INTENTS,
+  SOCIAL_FLAG_TYPES,
+  ACTION_COMMANDS,
   ok,
   fail,
   randomId,

@@ -54,6 +54,7 @@ struct DirectorConfig
 {
     bool enabled = true;
     std::string bridgeUrl = "http://wow-llm-bridge:11434/api/generate";
+    std::string spiceUrl = "http://wow-llm-bridge:11434/api/spice/random";
     std::string model = "wow-llm-director";
     uint32 httpTimeoutMs = 1500;
     uint32 maxMessageChars = 240;
@@ -61,6 +62,15 @@ struct DirectorConfig
     uint32 groupCooldownMs = 5000;
     uint32 channelCooldownMs = 20000;
     uint32 deathCooldownMs = 5000;
+    bool ambientSpiceEnable = true;
+    uint32 ambientSpiceIntervalMs = 120000;
+    uint32 ambientSpiceChancePct = 40;
+    uint32 ambientSpiceMinQuality = 60;
+    bool ambientSpiceOnlyWithHumans = true;
+    bool actionDirectorEnable = false;
+    std::string actionDirectorUrl = "http://wow-llm-bridge:11434/api/action/event";
+    uint32 actionDirectorTimeoutMs = 2500;
+    bool routeActionPlans = false;
     bool routeSayResponses = false;
     bool routeChannelResponses = true;
     bool routePartyIntents = false;
@@ -113,6 +123,7 @@ struct DirectorAction
     std::string botName;
     std::string intent;
     std::string message;
+    std::vector<std::string> commands;
 };
 
 struct BatchedChatLine
@@ -133,6 +144,7 @@ struct PendingChatBatch
 
 DirectorConfig g_config;
 std::atomic<uint64> g_nextEventId{1};
+std::atomic<uint64> g_ambientBotCursor{0};
 std::mutex g_configMutex;
 std::mutex g_cooldownMutex;
 std::mutex g_batchMutex;
@@ -143,6 +155,7 @@ std::unordered_map<std::string, uint32> g_lastRouteMs;
 std::unordered_map<std::string, PendingChatBatch> g_pendingBatches;
 std::deque<DirectorAction> g_actionQueue;
 std::unordered_map<ObjectGuid::LowType, std::string> g_pendingDeathCauses;
+uint32 g_nextAmbientSpiceMs = 0;
 
 bool IsBot(Player* player)
 {
@@ -220,6 +233,8 @@ uint32 StableStringId(std::string_view value)
 
     return hash ? hash : 1;
 }
+
+std::vector<std::string> AllowedPlayerbotCommands();
 
 std::string GetLocationName(Player* player)
 {
@@ -377,6 +392,100 @@ std::optional<std::string> ExtractJsonStringField(std::string_view json, std::st
     }
 
     return std::nullopt;
+}
+
+std::vector<std::string> ExtractJsonStringArrayField(std::string_view json, std::string_view key)
+{
+    std::vector<std::string> values;
+    std::size_t pos = 0;
+    while ((pos = json.find('"', pos)) != std::string_view::npos)
+    {
+        std::size_t keyStart = pos;
+        std::optional<std::string> parsedKey = ParseJsonStringAt(json, pos);
+        if (!parsedKey)
+            return values;
+
+        if (*parsedKey != key)
+            continue;
+
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (pos >= json.size() || json[pos] != ':')
+        {
+            pos = keyStart + 1;
+            continue;
+        }
+
+        ++pos;
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (pos >= json.size() || json[pos] != '[')
+            return values;
+
+        ++pos;
+        while (pos < json.size())
+        {
+            while (pos < json.size() && (std::isspace(static_cast<unsigned char>(json[pos])) || json[pos] == ','))
+                ++pos;
+
+            if (pos >= json.size() || json[pos] == ']')
+                return values;
+
+            if (json[pos] == '"')
+            {
+                if (std::optional<std::string> value = ParseJsonStringAt(json, pos))
+                    values.push_back(std::move(*value));
+                else
+                    return values;
+            }
+            else
+            {
+                ++pos;
+            }
+        }
+
+        return values;
+    }
+
+    return values;
+}
+
+std::vector<std::string> ExtractRepeatedJsonStringField(std::string_view json, std::string_view key)
+{
+    std::vector<std::string> values;
+    std::size_t pos = 0;
+    while ((pos = json.find('"', pos)) != std::string_view::npos)
+    {
+        std::size_t keyStart = pos;
+        std::optional<std::string> parsedKey = ParseJsonStringAt(json, pos);
+        if (!parsedKey)
+            return values;
+
+        if (*parsedKey != key)
+            continue;
+
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (pos >= json.size() || json[pos] != ':')
+        {
+            pos = keyStart + 1;
+            continue;
+        }
+
+        ++pos;
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (std::optional<std::string> value = ParseJsonStringAt(json, pos))
+            values.push_back(std::move(*value));
+        else
+            pos = keyStart + 1;
+    }
+
+    return values;
 }
 
 std::string ExtractJsonObjectText(std::string value)
@@ -538,11 +647,134 @@ std::string BuildBridgeRequest(ChatEvent const& event, DirectorConfig const& con
     return json.str();
 }
 
+std::string BuildActionDirectorRequest(ChatEvent const& event)
+{
+    std::ostringstream commands;
+    bool firstCommand = true;
+    for (std::string const& command : AllowedPlayerbotCommands())
+    {
+        if (!firstCommand)
+            commands << ",";
+        firstCommand = false;
+        commands << "\"" << JsonEscape(command) << "\"";
+    }
+
+    std::ostringstream bots;
+    bool firstBot = true;
+    for (std::string const& botName : event.scope.botNames)
+    {
+        if (!firstBot)
+            bots << ",";
+        firstBot = false;
+        bots << "\"" << JsonEscape(botName) << "\"";
+    }
+
+    std::ostringstream json;
+    json
+        << "{"
+        << "\"event_id\":\"" << event.id << "\","
+        << "\"event_kind\":\"party_chat\","
+        << "\"channel_type\":\"" << JsonEscape(event.channel) << "\","
+        << "\"text\":\"" << JsonEscape(event.message) << "\","
+        << "\"speaker\":{"
+        << "\"guid\":" << event.speakerGuid << ","
+        << "\"name\":\"" << JsonEscape(event.speakerName) << "\","
+        << "\"level\":" << uint32(event.speakerLevel) << ","
+        << "\"class\":" << uint32(event.speakerClass) << ","
+        << "\"zone_id\":" << event.zoneId << ","
+        << "\"area_id\":" << event.areaId
+        << "},"
+        << "\"scope\":{"
+        << "\"id\":" << event.scopeId << ","
+        << "\"name\":\"" << JsonEscape(event.scopeName) << "\","
+        << "\"human_count\":" << event.scope.humanCount << ","
+        << "\"bot_count\":" << event.scope.botCount << ","
+        << "\"eligible_bots\":[" << bots.str() << "]"
+        << "},"
+        << "\"command_allowlist\":[" << commands.str() << "]"
+        << "}";
+
+    return json.str();
+}
+
 bool IsPartyIntent(std::string const& intent)
 {
     return intent == "follow_leader" || intent == "assist_target" || intent == "hold_position" ||
         intent == "move_closer" || intent == "heal_priority" || intent == "avoid_combat" ||
         intent == "need_help";
+}
+
+std::vector<std::string> AllowedPlayerbotCommands()
+{
+    return {
+        "attack",
+        "follow",
+        "stay",
+        "flee",
+        "runaway",
+        "max dps",
+        "rti skull",
+        "rti cross",
+        "rti cc moon",
+        "rti cc star",
+        "rti cc diamond"
+    };
+}
+
+std::optional<std::string> NormalizeAllowedPlayerbotCommand(std::string command)
+{
+    command = ToLower(Trim(std::move(command)));
+    if (command.empty())
+        return std::nullopt;
+
+    for (std::string const& allowed : AllowedPlayerbotCommands())
+    {
+        if (command == allowed)
+            return command;
+    }
+
+    return std::nullopt;
+}
+
+std::vector<std::string> CommandsForPartyIntent(std::string const& intent)
+{
+    if (intent == "follow_leader" || intent == "move_closer")
+        return { "follow" };
+    if (intent == "hold_position")
+        return { "stay" };
+    if (intent == "assist_target" || intent == "heal_priority" || intent == "need_help")
+        return { "attack" };
+    if (intent == "avoid_combat")
+        return { "flee", "runaway" };
+
+    return {};
+}
+
+std::vector<std::string> ValidateActionCommands(std::vector<std::string> const& rawCommands, uint64 eventId)
+{
+    std::vector<std::string> commands;
+    for (std::string const& rawCommand : rawCommands)
+    {
+        if (std::optional<std::string> command = NormalizeAllowedPlayerbotCommand(rawCommand))
+        {
+            if (std::find(commands.begin(), commands.end(), *command) == commands.end())
+                commands.push_back(std::move(*command));
+        }
+        else
+            LOG_WARN("module.llm-npc-director", "Action plan event {} rejected unsupported playerbot command '{}'", eventId, rawCommand);
+    }
+
+    return commands;
+}
+
+std::vector<std::string> ExtractActionPlanCommands(std::string_view payload, uint64 eventId)
+{
+    std::vector<std::string> rawCommands = ExtractJsonStringArrayField(payload, "commands");
+
+    for (std::string& command : ExtractRepeatedJsonStringField(payload, "command"))
+        rawCommands.push_back(std::move(command));
+
+    return ValidateActionCommands(rawCommands, eventId);
 }
 
 std::optional<DirectorAction> ParseBridgeAction(ChatEvent const& event, std::string const& responseBody)
@@ -553,6 +785,10 @@ std::optional<DirectorAction> ParseBridgeAction(ChatEvent const& event, std::str
     std::string intent = ExtractJsonStringField(payload, "intent")
         .value_or(ExtractJsonStringField(payload, "action").value_or(""));
     intent = Trim(std::move(intent));
+    std::vector<std::string> commands = ExtractActionPlanCommands(payload, event.id);
+
+    if (intent.empty() && !commands.empty())
+        intent = "action_plan";
 
     if (intent.empty() || intent == "hold")
         return std::nullopt;
@@ -572,18 +808,22 @@ std::optional<DirectorAction> ParseBridgeAction(ChatEvent const& event, std::str
         .value_or(ExtractJsonStringField(payload, "say")
         .value_or(ExtractJsonStringField(payload, "text").value_or("")));
     action.message = TruncateForEvent(Trim(std::move(action.message)), GetConfig());
+    action.commands = std::move(commands);
 
-    if (action.intent == "say_only" && (action.botName.empty() || action.message.empty()))
+    if (action.intent == "say_only" && action.commands.empty() && (action.botName.empty() || action.message.empty()))
     {
         LOG_WARN("module.llm-npc-director", "Bridge event {} returned say_only without bot/message; dropping", event.id);
         return std::nullopt;
     }
 
-    if (action.intent != "say_only" && !IsPartyIntent(action.intent))
+    if (action.intent != "say_only" && !IsPartyIntent(action.intent) && action.commands.empty())
     {
         LOG_WARN("module.llm-npc-director", "Bridge event {} returned unsupported intent '{}'; dropping", event.id, action.intent);
         return std::nullopt;
     }
+
+    if (action.commands.empty() && IsPartyIntent(action.intent))
+        action.commands = ValidateActionCommands(CommandsForPartyIntent(action.intent), event.id);
 
     return action;
 }
@@ -598,6 +838,83 @@ void EnqueueDirectorAction(DirectorAction action)
     }
 
     g_actionQueue.push_back(std::move(action));
+}
+
+std::string BuildSpiceUrl(DirectorConfig const& config)
+{
+    std::ostringstream url;
+    url << config.spiceUrl;
+    url << (config.spiceUrl.find('?') == std::string::npos ? '?' : '&');
+    url << "channel_type=world"
+        << "&limit=1"
+        << "&min_quality=" << config.ambientSpiceMinQuality
+        << "&exact_chance=100"
+        << "&exact_safe_only=1";
+    return url.str();
+}
+
+std::optional<std::string> FetchSpiceLine(DirectorConfig const& config)
+{
+    BridgeUrl url = ParseBridgeUrl(BuildSpiceUrl(config));
+
+    try
+    {
+        boost::asio::ip::tcp::iostream stream;
+        stream.expires_after(std::chrono::milliseconds(config.httpTimeoutMs));
+        stream.connect(url.host, url.port);
+        if (!stream)
+            throw std::runtime_error(stream.error().message());
+
+        stream
+            << "GET " << url.target << " HTTP/1.1\r\n"
+            << "Host: " << url.host << "\r\n"
+            << "User-Agent: mod-llm-npc-director-spice\r\n"
+            << "Connection: close\r\n\r\n";
+
+        stream.flush();
+
+        std::string httpVersion;
+        unsigned int status = 0;
+        stream >> httpVersion >> status;
+        if (status < 200 || status >= 300)
+        {
+            LOG_WARN("module.llm-npc-director", "Spice bridge returned HTTP {}", status);
+            return std::nullopt;
+        }
+
+        std::string headerLine;
+        std::getline(stream, headerLine);
+        while (std::getline(stream, headerLine) && headerLine != "\r")
+        {
+        }
+
+        std::string responseBody((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        std::optional<std::string> message = ExtractJsonStringField(responseBody, "message");
+        if (!message)
+            return std::nullopt;
+
+        std::string line = TruncateForEvent(Trim(std::move(*message)), config);
+        if (line.empty())
+            return std::nullopt;
+
+        return line;
+    }
+    catch (std::exception const& ex)
+    {
+        LOG_WARN("module.llm-npc-director", "Spice bridge fetch failed: {}", ex.what());
+        return std::nullopt;
+    }
+}
+
+void PostAmbientSpiceAction(DirectorAction action)
+{
+    DirectorConfig config = GetConfig();
+    std::optional<std::string> line = FetchSpiceLine(config);
+    if (!line)
+        return;
+
+    action.message = std::move(*line);
+    EnqueueDirectorAction(std::move(action));
 }
 
 void PostToBridge(ChatEvent event)
@@ -657,6 +974,63 @@ void PostToBridge(ChatEvent event)
     }
 }
 
+void PostToActionDirector(ChatEvent event)
+{
+    DirectorConfig config = GetConfig();
+    BridgeUrl url = ParseBridgeUrl(config.actionDirectorUrl);
+    std::string body = BuildActionDirectorRequest(event);
+
+    try
+    {
+        boost::asio::ip::tcp::iostream stream;
+        stream.expires_after(std::chrono::milliseconds(config.actionDirectorTimeoutMs));
+        stream.connect(url.host, url.port);
+        if (!stream)
+            throw std::runtime_error(stream.error().message());
+
+        stream
+            << "POST " << url.target << " HTTP/1.1\r\n"
+            << "Host: " << url.host << "\r\n"
+            << "User-Agent: mod-llm-npc-director-action\r\n"
+            << "Content-Type: application/json\r\n"
+            << "X-Event-Id: " << event.id << "\r\n"
+            << "X-Wow-Channel: " << event.channel << "\r\n"
+            << "X-Wow-Player: " << event.speakerName << "\r\n"
+            << "Content-Length: " << body.size() << "\r\n"
+            << "Connection: close\r\n\r\n"
+            << body;
+
+        stream.flush();
+
+        std::string httpVersion;
+        unsigned int status = 0;
+        stream >> httpVersion >> status;
+
+        if (status < 200 || status >= 300)
+        {
+            LOG_WARN("module.llm-npc-director", "Action director returned HTTP {} for event {}", status, event.id);
+            return;
+        }
+
+        std::string headerLine;
+        std::getline(stream, headerLine);
+        while (std::getline(stream, headerLine) && headerLine != "\r")
+        {
+        }
+
+        std::string responseBody((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        if (config.routeActionPlans)
+        {
+            if (std::optional<DirectorAction> action = ParseBridgeAction(event, responseBody))
+                EnqueueDirectorAction(std::move(*action));
+        }
+    }
+    catch (std::exception const& ex)
+    {
+        LOG_WARN("module.llm-npc-director", "Action director forward failed for event {}: {}", event.id, ex.what());
+    }
+}
+
 bool ShouldThrottle(std::string const& key, uint32 cooldownMs)
 {
     uint32 now = GameTime::GetGameTimeMS().count();
@@ -693,6 +1067,22 @@ void ForwardEvent(ChatEvent event)
         event.scope.humanCount, event.scope.botCount);
 
     std::thread(PostToBridge, std::move(event)).detach();
+}
+
+void ForwardActionEvent(ChatEvent event)
+{
+    DirectorConfig config = GetConfig();
+    if (!config.enabled || !config.actionDirectorEnable || event.scope.botCount == 0)
+        return;
+
+    event.id = g_nextEventId.fetch_add(1, std::memory_order_relaxed);
+    event.message = TruncateForEvent(event.message, config);
+
+    LOG_DEBUG("module.llm-npc-director",
+        "Forwarding action event {} from {} in scope {} with {} bot(s)",
+        event.id, event.speakerName, event.scopeId, event.scope.botCount);
+
+    std::thread(PostToActionDirector, std::move(event)).detach();
 }
 
 void QueueBatchedEvent(std::string const& key, ChatEvent event, uint32 windowMs)
@@ -856,6 +1246,61 @@ ScopeSnapshot SnapshotNamedChannel(std::string const& channelName)
     return snapshot;
 }
 
+bool PercentRoll(uint32 percent)
+{
+    if (percent >= 100)
+        return true;
+    if (percent == 0)
+        return false;
+
+    uint32 now = GameTime::GetGameTimeMS().count();
+    uint32 roll = StableStringId(std::to_string(now) + ":" + std::to_string(g_nextEventId.load(std::memory_order_relaxed))) % 100;
+    return roll < percent;
+}
+
+std::optional<std::string> PickAmbientBot(ScopeSnapshot const& snapshot)
+{
+    if (snapshot.botNames.empty())
+        return std::nullopt;
+
+    uint64 index = g_ambientBotCursor.fetch_add(1, std::memory_order_relaxed) % snapshot.botNames.size();
+    return snapshot.botNames[static_cast<std::size_t>(index)];
+}
+
+void MaybeQueueAmbientSpice()
+{
+    DirectorConfig config = GetConfig();
+    if (!config.enabled || !config.ambientSpiceEnable || !config.routeChannelResponses || config.worldChannelName.empty())
+        return;
+
+    uint32 now = GameTime::GetGameTimeMS().count();
+    if (g_nextAmbientSpiceMs != 0 && getMSTimeDiff(now, g_nextAmbientSpiceMs) < 0x80000000u)
+        return;
+
+    g_nextAmbientSpiceMs = now + std::max<uint32>(config.ambientSpiceIntervalMs, 10000);
+    if (!PercentRoll(config.ambientSpiceChancePct))
+        return;
+
+    ScopeSnapshot snapshot = SnapshotNamedChannel(config.worldChannelName);
+    if (snapshot.botCount == 0 || (config.ambientSpiceOnlyWithHumans && snapshot.humanCount == 0))
+        return;
+
+    std::optional<std::string> botName = PickAmbientBot(snapshot);
+    if (!botName)
+        return;
+
+    DirectorAction action;
+    action.eventId = g_nextEventId.fetch_add(1, std::memory_order_relaxed);
+    action.channel = "world";
+    action.scopeId = StableStringId(config.worldChannelName);
+    action.scopeName = config.worldChannelName;
+    action.botName = std::move(*botName);
+    action.intent = "say_only";
+
+    LOG_DEBUG("module.llm-npc-director", "Queueing ambient spice fetch for bot '{}' in '{}'", action.botName, action.scopeName);
+    std::thread(PostAmbientSpiceAction, std::move(action)).detach();
+}
+
 Player* FindGuildBot(uint32 guildId, std::string const& botName)
 {
     for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
@@ -886,11 +1331,28 @@ Player* FindGroupBot(uint32 scopeId, std::string const& botName)
 {
     for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
     {
-        if (!IsOnlineBot(player) || player->GetName() != botName)
+        if (!IsOnlineBot(player))
+            continue;
+
+        if (!botName.empty() && player->GetName() != botName)
             continue;
 
         Group* group = player->GetGroup();
         if (group && group->GetGUID().GetCounter() == scopeId)
+            return player;
+    }
+
+    return nullptr;
+}
+
+Player* FindPlayerByLowGuid(ObjectGuid::LowType guid)
+{
+    if (!guid)
+        return nullptr;
+
+    for (auto const& [currentGuid, player] : ObjectAccessor::GetPlayers())
+    {
+        if (player && player->GetGUID().GetCounter() == guid)
             return player;
     }
 
@@ -977,19 +1439,133 @@ void RouteSayAction(DirectorAction const& action, DirectorConfig const& config)
     }
 }
 
+bool DispatchActionPlanCommands(DirectorAction const& action, DirectorConfig const& config)
+{
+    if (!config.routeActionPlans || action.commands.empty())
+        return false;
+
+    Player* speaker = FindPlayerByLowGuid(action.speakerGuid);
+    if (!speaker)
+    {
+        LOG_WARN("module.llm-npc-director", "Unable to route action plan event {}; speaker context is gone", action.eventId);
+        return false;
+    }
+
+#ifdef MOD_PLAYERBOTS
+    if (action.channel == "party" || action.channel == "raid")
+    {
+        Group* group = speaker->GetGroup();
+        if (!group || group->GetGUID().GetCounter() != action.scopeId)
+        {
+            LOG_WARN("module.llm-npc-director", "Unable to route action plan event {}; speaker/group context is gone", action.eventId);
+            return false;
+        }
+
+        uint32 botCount = 0;
+        uint32 commandCount = 0;
+        for (GroupReference const* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->GetSource();
+            if (!member || !IsOnlineBot(member))
+                continue;
+
+            if (!action.botName.empty() && member->GetName() != action.botName)
+                continue;
+
+            PlayerbotAI* botAI = GET_PLAYERBOT_AI(member);
+            if (!botAI)
+                continue;
+
+            ++botCount;
+            for (std::string const& command : action.commands)
+            {
+                botAI->HandleCommand(CHAT_MSG_PARTY, command, speaker);
+                ++commandCount;
+            }
+        }
+
+        if (commandCount == 0)
+        {
+            LOG_WARN("module.llm-npc-director", "Action plan event {} had no eligible bot command targets", action.eventId);
+            return false;
+        }
+
+        LOG_DEBUG("module.llm-npc-director", "Routed action plan event {} through {} group bot(s), {} command(s)",
+            action.eventId, botCount, commandCount);
+        return true;
+    }
+
+    if (action.botName.empty())
+    {
+        LOG_WARN("module.llm-npc-director", "Action plan event {} for channel '{}' has no bot target; dropping",
+            action.eventId, action.channel);
+        return false;
+    }
+
+    Player* bot = nullptr;
+    if (action.channel == "guild")
+        bot = FindGuildBot(action.scopeId, action.botName);
+    else if (action.channel == "channel" || action.channel == "world")
+        bot = FindChannelBot(action.scopeName, action.botName);
+
+    if (!bot)
+    {
+        LOG_WARN("module.llm-npc-director", "Unable to route action plan event {} through non-party bot '{}' in '{}'",
+            action.eventId, action.botName, action.channel);
+        return false;
+    }
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI)
+        return false;
+
+    uint32 commandCount = 0;
+    for (std::string const& command : action.commands)
+    {
+        botAI->HandleCommand(CHAT_MSG_WHISPER, command, speaker);
+        ++commandCount;
+    }
+
+    LOG_DEBUG("module.llm-npc-director", "Routed action plan event {} through non-party bot '{}', {} command(s)",
+        action.eventId, action.botName, commandCount);
+    return commandCount > 0;
+#else
+    (void)action;
+    (void)config;
+    LOG_WARN("module.llm-npc-director", "Action plan routing requested without MOD_PLAYERBOTS support");
+    return false;
+#endif
+}
+
 void ProcessDirectorAction(DirectorAction const& action)
 {
     DirectorConfig config = GetConfig();
+    bool routedCommands = DispatchActionPlanCommands(action, config);
+
+    if (routedCommands && !action.message.empty())
+        RouteSayAction(action, config);
+
     if (action.intent == "say_only")
     {
-        RouteSayAction(action, config);
+        if (action.commands.empty())
+            RouteSayAction(action, config);
+        else if (!routedCommands)
+            LOG_WARN("module.llm-npc-director", "Action plan event {} had commands but action routing is disabled or failed",
+                action.eventId);
         return;
     }
 
-    if (config.routePartyIntents)
+    if (!action.commands.empty() && !routedCommands)
     {
-        // TODO: Wire this to a public playerbot command/action surface once one is identified.
-        LOG_WARN("module.llm-npc-director", "Party intent '{}' for event {} parsed but not routed yet", action.intent, action.eventId);
+        LOG_WARN("module.llm-npc-director", "Action plan event {} had commands but action routing is disabled or failed",
+            action.eventId);
+        return;
+    }
+
+    if (config.routePartyIntents && action.commands.empty())
+    {
+        LOG_WARN("module.llm-npc-director", "Party intent '{}' for event {} parsed without a routable command plan",
+            action.intent, action.eventId);
     }
 }
 
@@ -1127,6 +1703,7 @@ public:
         DirectorConfig config;
         config.enabled = sConfigMgr->GetOption<bool>("LLMNpcDirector.Enable", true);
         config.bridgeUrl = sConfigMgr->GetOption<std::string>("LLMNpcDirector.BridgeUrl", "http://wow-llm-bridge:11434/api/generate");
+        config.spiceUrl = sConfigMgr->GetOption<std::string>("LLMNpcDirector.SpiceUrl", "http://wow-llm-bridge:11434/api/spice/random");
         config.model = sConfigMgr->GetOption<std::string>("LLMNpcDirector.Model", "wow-llm-director");
         config.httpTimeoutMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.HttpTimeoutMs", 1500);
         config.maxMessageChars = sConfigMgr->GetOption<uint32>("LLMNpcDirector.MaxMessageChars", 240);
@@ -1134,6 +1711,15 @@ public:
         config.groupCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.GroupCooldownMs", 5000);
         config.channelCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.ChannelCooldownMs", 20000);
         config.deathCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathCooldownMs", 5000);
+        config.ambientSpiceEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.AmbientSpiceEnable", true);
+        config.ambientSpiceIntervalMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceIntervalMs", 120000);
+        config.ambientSpiceChancePct = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceChancePct", 40));
+        config.ambientSpiceMinQuality = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceMinQuality", 60));
+        config.ambientSpiceOnlyWithHumans = sConfigMgr->GetOption<bool>("LLMNpcDirector.AmbientSpiceOnlyWithHumans", true);
+        config.actionDirectorEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.ActionDirectorEnable", false);
+        config.actionDirectorUrl = sConfigMgr->GetOption<std::string>("LLMNpcDirector.ActionDirectorUrl", "http://wow-llm-bridge:11434/api/action/event");
+        config.actionDirectorTimeoutMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.ActionDirectorTimeoutMs", 2500);
+        config.routeActionPlans = sConfigMgr->GetOption<bool>("LLMNpcDirector.RouteActionPlans", false);
         config.routeSayResponses = sConfigMgr->GetOption<bool>("LLMNpcDirector.RouteSayResponses", false);
         config.routeChannelResponses = sConfigMgr->GetOption<bool>("LLMNpcDirector.RouteChannelResponses", true);
         config.routePartyIntents = sConfigMgr->GetOption<bool>("LLMNpcDirector.RoutePartyIntents", false);
@@ -1142,8 +1728,10 @@ public:
         config.deathEventsEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.DeathEventsEnable", true);
         config.worldChannelName = sConfigMgr->GetOption<std::string>("LLMNpcDirector.WorldChannelName", "World");
 
-        if (config.routePartyIntents)
-            LOG_WARN("module.llm-npc-director", "Party intent routing is enabled, but playerbot action dispatch is still a TODO stub.");
+        if (config.routeActionPlans && !config.actionDirectorEnable)
+            LOG_WARN("module.llm-npc-director", "RouteActionPlans is enabled, but ActionDirectorEnable is disabled.");
+        if (config.routePartyIntents && !config.routeActionPlans)
+            LOG_WARN("module.llm-npc-director", "RoutePartyIntents is enabled without RouteActionPlans; parsed intents will only route when commands are present.");
 
         StoreConfig(std::move(config));
     }
@@ -1151,6 +1739,7 @@ public:
     void OnUpdate(uint32 /*diff*/) override
     {
         DrainBatchedEvents();
+        MaybeQueueAmbientSpice();
         DrainDirectorActions();
     }
 };
@@ -1178,6 +1767,8 @@ public:
         event.scopeId = guild->GetId();
         event.scopeName = guild->GetName();
         event.scope = std::move(snapshot);
+        if (config.actionDirectorEnable && MessageAddressesBot(event.message, event.scope.botNames))
+            ForwardActionEvent(event);
         QueueBatchedEvent(key, std::move(event), config.guildCooldownMs);
         return true;
     }
@@ -1205,6 +1796,8 @@ public:
         event.scopeId = scopeId;
         event.scopeName = group->GetLeaderName() ? group->GetLeaderName() : "";
         event.scope = std::move(snapshot);
+        if (config.actionDirectorEnable)
+            ForwardActionEvent(event);
         QueueBatchedEvent(key, std::move(event), config.groupCooldownMs);
         return true;
     }
@@ -1236,6 +1829,8 @@ public:
         event.scopeId = scopeId;
         event.scopeName = channelName;
         event.scope = std::move(snapshot);
+        if (config.actionDirectorEnable && MessageAddressesBot(event.message, event.scope.botNames))
+            ForwardActionEvent(event);
         QueueBatchedEvent(key, std::move(event), config.channelCooldownMs);
         return true;
     }
