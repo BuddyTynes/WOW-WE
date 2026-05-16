@@ -75,6 +75,8 @@ env\dist\etc\modules\individualProgression.conf
 env\dist\etc\modules\mod_ahbot.conf
 env\dist\etc\modules\mod_aoe_loot.conf
 env\dist\etc\modules\mod_ollama_chat.conf
+env\dist\etc\modules\playerbots.conf
+env\dist\etc\modules\small_group_tweaks.conf
 ```
 
 Auction House bot currently uses:
@@ -102,8 +104,30 @@ OllamaChat.Enable = 1
 OllamaChat.Url = http://wow-llm-bridge:11434/api/generate
 OllamaChat.EnableWhisperReplies = 1
 Hardcore.Enable = 1
-Hardcore.RandomBotChance = 25
+Hardcore.AuraSpellId = 0
+Hardcore.NameTag.Enable = 1
+Hardcore.RandomBotChance = 100
+Hardcore.RandomBotConvertFailedRolls = 1
+SmallGroup.WorldChannel.Enable = 1
+SmallGroup.WorldChannel.InitialJoinDelaySeconds = 5
+SmallGroup.ToolGatedGathering.Enable = 1
+AiPlayerbot.DisableRandomLevels = 1
+AiPlayerbot.RandombotStartingLevel = 1
+AiPlayerbot.AutoUpgradeEquip = 0
+AiPlayerbot.AutoLearnTrainerSpells = 0
+AiPlayerbot.RandomBotGroupNearby = 1
 ```
+
+Runtime hardcore bot replacement should create one new random character on the
+same account as the deleted bot. Do not use the bulk
+`RandomPlayerbotFactory::CreateRandomBots()` startup path for each death; it can
+inflate the in-memory/random-bot character pool when called repeatedly.
+
+`mod-small-group-tweaks` teaches Mining, Skinning, and Fishing on login but
+does not give the required tools. This is intentional: players can gather only
+after finding or buying the relevant tool, and Herbalism remains trainer-driven.
+The `World` channel auto-join is delayed briefly after login so the client sees
+the channel like a normal `/join World`.
 
 ## What Was Installed
 
@@ -328,6 +352,11 @@ Select-String -Path build-direct-worldserver.err.log `
   -Context 1,1 |
   Select-Object -Last 80
 ```
+
+If the final link fails with `undefined reference to AddCustomScripts()`,
+the empty `src\server\scripts\Custom` folder was included in a static script
+build. The repo Dockerfile passes `-DSCRIPTS_CUSTOM=disabled` to avoid this.
+Manual CMake builds should use that same flag with `-DSCRIPTS=static`.
 
 ## Interpreting Slow Progress
 

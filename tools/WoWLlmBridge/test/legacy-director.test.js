@@ -691,6 +691,32 @@ test("legacy director stores world death events as system memory", () => {
   assert.match(memories[0].summary, /Gragnok died/);
 });
 
+test("legacy director makes dead hardcore bot complain instead of self-roast", () => {
+  const normalized = JSON.parse(normalizeLegacyDirectorResponse(JSON.stringify({
+    intent: "say_only",
+    bot: "Gragnok",
+    message: "rip me l bozo"
+  }), {
+    eventType: "hardcore_death",
+    channel: "world",
+    humanCount: 1,
+    botCount: 1,
+    bots: ["Gragnok"],
+    speaker: "Gragnok",
+    deathCharacter: "Gragnok",
+    deathCause: "fell to their death",
+    deathLocation: "Durotar",
+    message: "<HC> Gragnok died at level 9 in Durotar, fell to their death."
+  }, {
+    selectedBot: "Gragnok"
+  }));
+
+  assert.equal(normalized.intent, "say_only");
+  assert.match(normalized.message, /I just died/i);
+  assert.match(normalized.message, /Durotar/);
+  assert.doesNotMatch(normalized.message, /bozo|rip/i);
+});
+
 test("legacy director strips practical helper labels from forced recent answers", () => {
   const parsed = {
     humanCount: 1,

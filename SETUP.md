@@ -259,14 +259,10 @@ The module set in this setup may need these compatibility fixes on a fresh
 checkout before the first successful build:
 
 - If `src\server\scripts\Custom` contains only `README.md`, static script
-  linking can fail with `undefined reference to AddCustomScripts()`. Add
-  `src\server\scripts\Custom\custom_script_loader.cpp`:
-
-```cpp
-void AddCustomScripts()
-{
-}
-```
+  linking can fail with `undefined reference to AddCustomScripts()`. The Docker
+  build disables that empty script bucket with `-DSCRIPTS_CUSTOM=disabled`.
+  If you run CMake manually with `-DSCRIPTS=static`, include the same flag
+  rather than adding project behavior under `src\server\scripts\Custom`.
 
 Docker Desktop on Windows may print warnings like:
 
@@ -407,6 +403,26 @@ channels will be readable.
 Characters can learn all 11 WotLK primary professions over time. The setup
 sets `MaxPrimaryTradeSkill = 11`, and `mod-small-group-tweaks` refreshes the
 remaining profession slots on login for existing characters.
+The same module also teaches Mining, Skinning, and Fishing on login without
+giving the tools. Players still need to get a mining pick, skinning knife, or
+fishing pole before those skills are usable. Herbalism stays trainer-driven
+because it has no tool gate.
+
+`mod-small-group-tweaks` also keeps real players and playerbots in the `World`
+channel. The first auto-join is delayed a few seconds after login so the client
+receives a normal visible channel join, then the module lightly rejoins players
+and bots if playerbot behavior drops the channel. If `World` does not appear in
+the chat channel list, try `/join World`; if that works manually, rerun
+`scripts\apply-host-config.ps1` and rebuild/recreate `ac-worldserver` so the
+module config is current. The LLM director uses that channel for slow
+Spice-of-Life ambient chatter. Bot-origin channel/guild/party messages are not
+fed back into the director, which prevents bot reply cascades.
+
+Playerbots are configured for a more organic hardcore run: random bots start at
+level 1, do not auto-upgrade gear, do not auto-learn trainer/quest spells, and
+can group with nearby bots. They stay guildless unless they accept a real
+player guild invite or guild-charter request through the LLM bridge likeability
+flow.
 
 ## GM Utilities
 
@@ -419,14 +435,49 @@ hardcore mode:
 ```
 
 Hardcore state is stored in the characters database by `mod-hardcore`; it does
-not require `EnablePlayerSettings`. Hardcore characters receive the configured
-indicator aura and a configurable `<HC>` name tag in client name-query
-responses, which is what unit frames, nameplates, tooltips, and player chat
-names use. By default, 25% of random playerbots are also marked hardcore the
-first time they are evaluated. Hardcore deaths send a global chat/server
-announcement and screen notification. Dead hardcore random bots stay online
-for 60 seconds, then log out and are replaced by the normal playerbot random
-pool logic. GM level 1+ accounts can mark an online bot:
+not require `EnablePlayerSettings`. Hardcore characters use the `<HC>` name
+tag as the primary visible marker. Server-side target-name normalization strips
+the configured tag from client-supplied action targets, so context-menu/slash
+actions such as party invite, whisper, friend add, guild invite, mail, and
+channel invites can resolve `Name <HC>` as `Name`. `Hardcore.AuraSpellId`
+defaults to `0`
+because a harmless built-in spell that reliably appears as a normal unit-frame
+buff has not been selected yet. The old aura spell `21090` is unsafe for this
+module because it can visibly scale characters; the module now warns about
+risky configured auras and blocks scale/transform style auras from being
+applied permanently. Use the aura diagnostics only while auditioning a
+secondary marker:
+
+```text
+.hardcore aura status
+.hardcore aura test <spellId>
+.hardcore aura refresh
+```
+
+The test command applies a candidate spell to your selected unit, or yourself
+if nothing is selected, for 30 seconds. A good indicator shows as a selectable
+unit-frame buff and does not change scale, model, stats, speed, damage,
+healing, stealth, faction, or combat behavior. The configured value lives in
+`env/dist/etc/modules/hardcore.conf`; rerun
+`powershell -ExecutionPolicy Bypass -File .\scripts\apply-host-config.ps1`
+after pulling config changes.
+
+The `<HC>` name-query tag is enabled by default for this realm. If this marker
+format is changed or disabled later, fully exit the WoW client and clear the
+client `Cache` folder so slash commands, friend adds, guild invites, and
+playerbot commands stop using stale cached display names.
+
+By default, all random playerbots are marked hardcore the first time they are
+evaluated, and old failed 25% rolls are converted on future login/map checks.
+Hardcore death announcements include cause of death when known, faction, guild,
+level, and location. Dead hardcore random bots stay online for 60 seconds, then
+are logged out, deleted, and replaced with one new random character on the same
+random-bot account. Do not call the bulk
+`RandomPlayerbotFactory::CreateRandomBots()` path for death replacement; that
+path is for startup/setup and can inflate the available random-bot character
+pool if called repeatedly at runtime. The module also limits random-bot PvP
+pressure so at most one random bot can actively damage a protected hardcore
+player/group at a time. GM level 1+ accounts can mark an online bot:
 
 ```text
 .hardcore bot <botName> confirm

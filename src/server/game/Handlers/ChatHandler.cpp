@@ -379,7 +379,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
             break;
         case CHAT_MSG_WHISPER:
             {
-                if (!normalizePlayerName(to))
+                if (!normalizePlayerTargetName(to))
                 {
                     SendPlayerNotFoundNotice(to);
                     break;

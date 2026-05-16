@@ -41,7 +41,7 @@ void WorldSession::HandleGuildCreateOpcode(WorldPackets::Guild::GuildCreate& pac
 void WorldSession::HandleGuildInviteOpcode(WorldPackets::Guild::GuildInviteByName& packet)
 {
     LOG_DEBUG("guild", "CMSG_GUILD_INVITE [{}]: Invited: {}", GetPlayerInfo(), packet.Name);
-    if (normalizePlayerName(packet.Name))
+    if (normalizePlayerTargetName(packet.Name))
         if (Guild* guild = GetPlayer()->GetGuild())
             guild->HandleInviteMember(this, packet.Name);
 }
@@ -50,7 +50,7 @@ void WorldSession::HandleGuildRemoveOpcode(WorldPackets::Guild::GuildOfficerRemo
 {
     LOG_DEBUG("guild", "CMSG_GUILD_REMOVE [{}]: Target: {}", GetPlayerInfo(), packet.Removee);
 
-    if (normalizePlayerName(packet.Removee))
+    if (normalizePlayerTargetName(packet.Removee))
         if (Guild* guild = GetPlayer()->GetGuild())
             guild->HandleRemoveMember(this, packet.Removee);
 }
@@ -99,7 +99,7 @@ void WorldSession::HandleGuildPromoteOpcode(WorldPackets::Guild::GuildPromoteMem
 {
     LOG_DEBUG("guild", "CMSG_GUILD_PROMOTE [{}]: Target: {}", GetPlayerInfo(), promote.Promotee);
 
-    if (normalizePlayerName(promote.Promotee))
+    if (normalizePlayerTargetName(promote.Promotee))
         if (Guild* guild = GetPlayer()->GetGuild())
             guild->HandleUpdateMemberRank(this, promote.Promotee, false);
 }
@@ -108,7 +108,7 @@ void WorldSession::HandleGuildDemoteOpcode(WorldPackets::Guild::GuildDemoteMembe
 {
     LOG_DEBUG("guild", "CMSG_GUILD_DEMOTE [{}]: Target: {}", GetPlayerInfo(), demote.Demotee);
 
-    if (normalizePlayerName(demote.Demotee))
+    if (normalizePlayerTargetName(demote.Demotee))
         if (Guild* guild = GetPlayer()->GetGuild())
             guild->HandleUpdateMemberRank(this, demote.Demotee, true);
 }
@@ -133,7 +133,7 @@ void WorldSession::HandleGuildLeaderOpcode(WorldPackets::Guild::GuildSetGuildMas
 {
     LOG_DEBUG("guild", "CMSG_GUILD_LEADER [{}]: Target: {}", GetPlayerInfo(), packet.NewMasterName);
 
-    if (normalizePlayerName(packet.NewMasterName))
+    if (normalizePlayerTargetName(packet.NewMasterName))
         if (Guild* guild = GetPlayer()->GetGuild())
             guild->HandleSetLeader(this, packet.NewMasterName);
 }
@@ -150,7 +150,7 @@ void WorldSession::HandleGuildSetPublicNoteOpcode(WorldPackets::Guild::GuildSetM
 {
     LOG_DEBUG("guild", "CMSG_GUILD_SET_PUBLIC_NOTE [{}]: Target: {}, Note: {}", GetPlayerInfo(), packet.NoteeName, packet.Note);
 
-    if (normalizePlayerName(packet.NoteeName))
+    if (normalizePlayerTargetName(packet.NoteeName))
         if (Guild* guild = GetPlayer()->GetGuild())
             guild->HandleSetMemberNote(this, packet.NoteeName, packet.Note, true);
 }
@@ -160,7 +160,7 @@ void WorldSession::HandleGuildSetOfficerNoteOpcode(WorldPackets::Guild::GuildSet
     LOG_DEBUG("guild", "CMSG_GUILD_SET_OFFICER_NOTE [{}]: Target: {}, Note: {}",
               GetPlayerInfo(), packet.NoteeName, packet.Note);
 
-    if (normalizePlayerName(packet.NoteeName))
+    if (normalizePlayerTargetName(packet.NoteeName))
         if (Guild* guild = GetPlayer()->GetGuild())
             guild->HandleSetMemberNote(this, packet.NoteeName, packet.Note, false);
 }

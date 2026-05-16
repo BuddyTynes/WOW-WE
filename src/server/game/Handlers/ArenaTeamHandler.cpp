@@ -94,7 +94,7 @@ void WorldSession::HandleArenaTeamInviteOpcode(WorldPacket& recvData)
 
     if (!invitedName.empty())
     {
-        if (!normalizePlayerName(invitedName))
+        if (!normalizePlayerTargetName(invitedName))
             return;
 
         player = ObjectAccessor::FindPlayerByName(invitedName, false);
@@ -317,7 +317,7 @@ void WorldSession::HandleArenaTeamRemoveOpcode(WorldPacket& recvData)
         return;
     }
 
-    if (!normalizePlayerName(name))
+    if (!normalizePlayerTargetName(name))
         return;
 
     // Check if team member exists
@@ -382,7 +382,7 @@ void WorldSession::HandleArenaTeamLeaderOpcode(WorldPacket& recvData)
         return;
     }
 
-    if (!normalizePlayerName(name))
+    if (!normalizePlayerTargetName(name))
         return;
 
     // Check if team member exists

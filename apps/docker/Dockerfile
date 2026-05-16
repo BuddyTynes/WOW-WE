@@ -89,6 +89,7 @@ RUN --mount=type=cache,target=/ccache,sharing=locked \
        -DAPPS_BUILD="$APPS_BUILD"                      \
        -DTOOLS_BUILD="$CTOOLS_BUILD"                   \
        -DSCRIPTS="$CSCRIPTS"                           \
+       -DSCRIPTS_CUSTOM=disabled                       \
        -DMODULES="$CMODULES"                           \
        -DWITH_WARNINGS="$CWITH_WARNINGS"               \
        -DWITHOUT_GIT=1                                 \

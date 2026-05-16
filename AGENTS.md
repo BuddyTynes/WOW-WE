@@ -109,6 +109,33 @@ The repo-owned LLM bridge lives in `tools/WoWLlmBridge`. Keep runtime state
 local: do not commit `tools/WoWLlmBridge/.env`, `tools/WoWLlmBridge/data`, or
 the runtime SQLite database.
 
+For `modules/mod-hardcore`, treat the `<HC>` name-query tag as the current
+primary visible hardcore marker. `Hardcore.AuraSpellId` defaults to `0` until a
+harmless built-in spell is found that reliably appears as a normal unit-frame
+buff. Do not switch the default back to spell `21090`; it can scale characters
+and is blocked by module diagnostics. Use `.hardcore aura status` and
+`.hardcore aura test <spellId>` in game only when auditioning replacement
+client-known marker spells. If the name tag format is changed or disabled,
+document that players should clear the WoW client `Cache` folder because stale
+name-query data can interfere with slash commands, friends, guild invites, and
+playerbot commands.
+The core target-name normalization hook intentionally lets modules strip that
+display tag from client-supplied social/action targets while leaving character
+creation and rename validation strict.
+
+`mod-small-group-tweaks` owns small-realm behavior for `.online`, all-primary
+profession slots, tool-gated Mining/Skinning/Fishing startup skills, automatic
+delayed `World` channel rejoin, and LLM-mediated playerbot guild
+invite/charter decisions. The startup gathering skills should not grant tools,
+and Herbalism should stay trainer-driven unless the product intent changes.
+Keep playerbot behavior overrides in repo-owned config/setup files or companion
+modules, not in the cloned `mod-playerbots` repository.
+
+Hardcore random-bot death replacement must create one replacement character,
+not rerun `RandomPlayerbotFactory::CreateRandomBots()`. The bulk factory is a
+startup/setup path and repeated runtime calls can append duplicate account IDs
+to the playerbot config cache and inflate the available character pool.
+
 The Spice of Life chat pool is portable through the tracked seed file at
 `tools/WoWLlmBridge/seeds/spice_chat_pool.seed.jsonl`. Raw ElvUI exports in
 `tools/ChatLogPool/unparsed logs` and copied files in

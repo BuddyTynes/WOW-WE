@@ -44,6 +44,7 @@ Copied events should probably have a new owner
 #include "InstanceSaveMgr.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
 #include "SocialMgr.h"
@@ -524,6 +525,13 @@ void WorldSession::HandleCalendarEventInvite(WorldPacket& recvData)
     uint32 inviteeGuildId = 0;
 
     recvData >> eventId >> inviteId >> name >> isPreInvite >> isGuildEvent;
+
+    if (!normalizePlayerTargetName(name))
+    {
+        sCalendarMgr->SendCalendarCommandResult(playerGuid,
+            CALENDAR_ERROR_PLAYER_NOT_FOUND);
+        return;
+    }
 
     if (Player* player = ObjectAccessor::FindPlayerByName(name.c_str(), false))
     {

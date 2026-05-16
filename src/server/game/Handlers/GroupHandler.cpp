@@ -70,7 +70,7 @@ void WorldSession::HandleGroupInviteOpcode(WorldPacket& recvData)
     // attempt add selected player
 
     // cheating
-    if (!normalizePlayerName(membername))
+    if (!normalizePlayerTargetName(membername))
     {
         SendPartyResult(PARTY_OP_INVITE, membername, ERR_BAD_PLAYER_NAME_S);
         return;
@@ -374,7 +374,7 @@ void WorldSession::HandleGroupUninviteOpcode(WorldPacket& recvData)
     recvData >> membername;
 
     // player not found
-    if (!normalizePlayerName(membername))
+    if (!normalizePlayerTargetName(membername))
         return;
 
     // can't uninvite yourself
@@ -628,6 +628,9 @@ void WorldSession::HandleGroupChangeSubGroupOpcode(WorldPacket& recvData)
         return;
 
     if (!group->HasFreeSlotSubGroup(groupNr))
+        return;
+
+    if (!normalizePlayerTargetName(name))
         return;
 
     Player* movedPlayer = ObjectAccessor::FindPlayerByName(name, false);
@@ -1098,12 +1101,12 @@ void WorldSession::HandleGroupSwapSubGroupOpcode(WorldPacket& recv_data)
     recv_data >> playerName1;
     recv_data >> playerName2;
 
-    if (!normalizePlayerName(playerName1))
+    if (!normalizePlayerTargetName(playerName1))
     {
         SendPartyResult(PARTY_OP_SWAP, playerName1, ERR_GROUP_SWAP_FAILED);
         return;
     }
-    if (!normalizePlayerName(playerName2))
+    if (!normalizePlayerTargetName(playerName2))
     {
         SendPartyResult(PARTY_OP_SWAP, playerName1, ERR_GROUP_SWAP_FAILED);
         return;

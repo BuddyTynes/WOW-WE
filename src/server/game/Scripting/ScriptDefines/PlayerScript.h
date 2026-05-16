@@ -27,6 +27,8 @@
 #include "AchievementMgr.h"
 #include "KillRewarder.h"
 
+struct Petition;
+
 enum PlayerHook
 {
     PLAYERHOOK_ON_PLAYER_JUST_DIED,
@@ -65,6 +67,7 @@ enum PlayerHook
     PLAYERHOOK_ON_CHAT_WITH_GUILD,
     PLAYERHOOK_ON_CHAT_WITH_CHANNEL,
     PLAYERHOOK_ON_CUSTOMIZE_NAME_QUERY,
+    PLAYERHOOK_ON_NORMALIZE_PLAYER_TARGET_NAME,
     PLAYERHOOK_ON_EMOTE,
     PLAYERHOOK_ON_TEXT_EMOTE,
     PLAYERHOOK_ON_SPELL_CAST,
@@ -138,6 +141,7 @@ enum PlayerHook
     PLAYERHOOK_CAN_SEND_MAIL,
     PLAYERHOOK_PETITION_BUY,
     PLAYERHOOK_PETITION_SHOW_LIST,
+    PLAYERHOOK_CAN_SIGN_PETITION,
     PLAYERHOOK_ON_REWARD_KILL_REWARDER,
     PLAYERHOOK_CAN_GIVE_MAIL_REWARD_AT_GIVE_LEVEL,
     PLAYERHOOK_ON_DELETE_FROM_DB,
@@ -320,6 +324,9 @@ public:
 
     // Called before a name query response is sent to clients.
     virtual void OnPlayerCustomizeNameQuery(ObjectGuid /*guid*/, std::string& /*name*/) { }
+
+    // Called before a client-supplied player target name is normalized.
+    virtual void OnPlayerNormalizeTargetName(std::string& /*name*/) { }
 
     // Both of the below are called on emote opcodes.
     virtual void OnPlayerEmote(Player* /*player*/, uint32 /*emote*/) { }
@@ -513,6 +520,8 @@ public:
     virtual void OnPlayerPetitionBuy(Player* /*player*/, Creature* /*creature*/, uint32& /*charterid*/, uint32& /*cost*/, uint32& /*type*/) { }
 
     virtual void OnPlayerPetitionShowList(Player* /*player*/, Creature* /*creature*/, uint32& /*CharterEntry*/, uint32& /*CharterDispayID*/, uint32& /*CharterCost*/) { }
+
+    [[nodiscard]] virtual bool OnPlayerCanSignPetition(Player* /*player*/, Petition const* /*petition*/, bool& /*handled*/) { return true; }
 
     virtual void OnPlayerRewardKillRewarder(Player* /*player*/, KillRewarder* /*rewarder*/, bool /*isDungeon*/, float& /*rate*/) { }
 

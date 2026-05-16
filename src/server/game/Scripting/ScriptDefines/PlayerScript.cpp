@@ -192,6 +192,11 @@ void ScriptMgr::OnPlayerCustomizeNameQuery(ObjectGuid guid, std::string& name)
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_CUSTOMIZE_NAME_QUERY, script->OnPlayerCustomizeNameQuery(guid, name));
 }
 
+void ScriptMgr::OnPlayerNormalizeTargetName(std::string& name)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_NORMALIZE_PLAYER_TARGET_NAME, script->OnPlayerNormalizeTargetName(name));
+}
+
 void ScriptMgr::OnPlayerEmote(Player* player, uint32 emote)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_EMOTE, script->OnPlayerEmote(player, emote));
@@ -556,6 +561,12 @@ void ScriptMgr::OnPlayerPetitionBuy(Player* player, Creature* creature, uint32& 
 void ScriptMgr::OnPlayerPetitionShowList(Player* player, Creature* creature, uint32& CharterEntry, uint32& CharterDispayID, uint32& CharterCost)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_PETITION_SHOW_LIST, script->OnPlayerPetitionShowList(player, creature, CharterEntry, CharterDispayID, CharterCost));
+}
+
+bool ScriptMgr::OnPlayerCanSignPetition(Player* player, Petition const* petition, bool& handled)
+{
+    handled = false;
+    CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_SIGN_PETITION, !script->OnPlayerCanSignPetition(player, petition, handled));
 }
 
 void ScriptMgr::OnPlayerRewardKillRewarder(Player* player, KillRewarder* rewarder, bool isDungeon, float& rate)

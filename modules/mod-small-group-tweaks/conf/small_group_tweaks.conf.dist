@@ -14,3 +14,22 @@ SmallGroup.BotGuildInvite.TimeoutMs = 3000
 SmallGroup.BotGuildInvite.DecisionCacheSeconds = 3600
 SmallGroup.BotGuildInvite.FallbackMode = decline
 SmallGroup.BotGuildInvite.DefaultLikeability = 50
+
+#
+# Keep real players and playerbots in the World channel. Bots can leave custom
+# channels during normal playerbot behavior, so the module lightly rejoins them
+# over time. The LLM director uses this channel for slow Spice-of-Life ambient
+# chatter and death reactions.
+#
+SmallGroup.WorldChannel.Enable = 1
+SmallGroup.WorldChannel.Name = World
+SmallGroup.WorldChannel.InitialJoinDelaySeconds = 5
+SmallGroup.WorldChannel.RejoinSeconds = 60
+
+#
+# Teach tool-gated gathering skills on login without giving the tools. This
+# gives players Mining, Skinning, and Fishing, but they still need a mining
+# pick, skinning knife, or fishing pole before gathering. Herbalism is not
+# included because it has no tool gate.
+#
+SmallGroup.ToolGatedGathering.Enable = 1

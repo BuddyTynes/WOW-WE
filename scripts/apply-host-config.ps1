@@ -194,6 +194,16 @@ $hardcoreSource = Join-Path $root "modules\mod-hardcore\conf\hardcore.conf.dist"
 $hardcoreTarget = Join-Path $moduleConfigDir "hardcore.conf"
 if (Test-Path $hardcoreSource) {
     Copy-Item -LiteralPath $hardcoreSource -Destination $hardcoreTarget -Force
+    $hardcoreValues = [ordered]@{
+        "Hardcore.AuraSpellId" = "0"
+        "Hardcore.NameTag.Enable" = "1"
+        "Hardcore.RandomBotChance" = "100"
+        "Hardcore.RandomBotConvertFailedRolls" = "1"
+    }
+
+    foreach ($key in $hardcoreValues.Keys) {
+        Set-ConfigValue -Path $hardcoreTarget -Key $key -Value $hardcoreValues[$key]
+    }
 } else {
     Write-Warning "Could not find $hardcoreSource."
 }
@@ -202,6 +212,17 @@ $smallGroupSource = Join-Path $root "modules\mod-small-group-tweaks\conf\small_g
 $smallGroupTarget = Join-Path $moduleConfigDir "small_group_tweaks.conf"
 if (Test-Path $smallGroupSource) {
     Copy-Item -LiteralPath $smallGroupSource -Destination $smallGroupTarget -Force
+    $smallGroupValues = [ordered]@{
+        "SmallGroup.WorldChannel.Enable" = "1"
+        "SmallGroup.WorldChannel.Name" = "World"
+        "SmallGroup.WorldChannel.InitialJoinDelaySeconds" = "5"
+        "SmallGroup.WorldChannel.RejoinSeconds" = "60"
+        "SmallGroup.ToolGatedGathering.Enable" = "1"
+    }
+
+    foreach ($key in $smallGroupValues.Keys) {
+        Set-ConfigValue -Path $smallGroupTarget -Key $key -Value $smallGroupValues[$key]
+    }
 } else {
     Write-Warning "Could not find $smallGroupSource."
 }
@@ -210,17 +231,46 @@ $llmDirectorSource = Join-Path $root "modules\mod-llm-npc-director\conf\llm_npc_
 $llmDirectorTarget = Join-Path $moduleConfigDir "llm_npc_director.conf"
 if (Test-Path $llmDirectorSource) {
     Copy-Item -LiteralPath $llmDirectorSource -Destination $llmDirectorTarget -Force
+    $llmDirectorValues = [ordered]@{
+        "LLMNpcDirector.RouteChannelResponses" = "1"
+        "LLMNpcDirector.WorldChatEnable" = "1"
+        "LLMNpcDirector.WorldChannelName" = "World"
+        "LLMNpcDirector.AmbientSpiceEnable" = "1"
+        "LLMNpcDirector.AmbientSpiceIntervalMs" = "120000"
+        "LLMNpcDirector.AmbientSpiceChancePct" = "40"
+        "LLMNpcDirector.AmbientSpiceOnlyWithHumans" = "1"
+    }
+
+    foreach ($key in $llmDirectorValues.Keys) {
+        Set-ConfigValue -Path $llmDirectorTarget -Key $key -Value $llmDirectorValues[$key]
+    }
 } else {
     Write-Warning "Could not find $llmDirectorSource."
 }
 
-$playerbotsTarget = Join-Path $moduleConfigDir "playerbots.conf.dist"
-if (-not (Test-Path $playerbotsTarget)) {
-    $playerbotsTarget = Join-Path $moduleConfigDir "playerbots.conf"
-}
+$playerbotsSource = Join-Path $root "modules\mod-playerbots\conf\playerbots.conf.dist"
+$playerbotsTarget = Join-Path $moduleConfigDir "playerbots.conf"
+if (Test-Path $playerbotsSource) {
+    Copy-Item -LiteralPath $playerbotsSource -Destination $playerbotsTarget -Force
+    $playerbotValues = [ordered]@{
+        "AiPlayerbot.LootNeedRollLevel" = "1"
+        "AiPlayerbot.DisableRandomLevels" = "1"
+        "AiPlayerbot.RandombotStartingLevel" = "1"
+        "AiPlayerbot.AutoUpgradeEquip" = "0"
+        "AiPlayerbot.AutoLearnTrainerSpells" = "0"
+        "AiPlayerbot.AutoLearnQuestSpells" = "0"
+        "AiPlayerbot.RandomBotQuestIds" = '""'
+        "AiPlayerbot.RandomBotSpellIds" = '""'
+        "AiPlayerbot.RandomBotGroupNearby" = "1"
+        "AiPlayerbot.RandomBotGuildNearby" = "0"
+        "AiPlayerbot.RandomBotGuildCount" = "0"
+    }
 
-if (Test-Path $playerbotsTarget) {
-    Set-ConfigValue -Path $playerbotsTarget -Key "AiPlayerbot.LootNeedRollLevel" -Value "1"
+    foreach ($key in $playerbotValues.Keys) {
+        Set-ConfigValue -Path $playerbotsTarget -Key $key -Value $playerbotValues[$key]
+    }
+} else {
+    Write-Warning "Could not find $playerbotsSource. Run scripts\clone-modules.ps1 first."
 }
 
 Write-Host "Host config applied."

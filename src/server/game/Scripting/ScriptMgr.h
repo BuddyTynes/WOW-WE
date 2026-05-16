@@ -58,6 +58,7 @@ class GridMap;
 class Group;
 class Guild;
 class InstanceMap;
+struct Petition;
 class InstanceScript;
 class Item;
 class Map;
@@ -345,6 +346,7 @@ public: /* PlayerScript */
     void OnPlayerDuelEnd(Player* winner, Player* loser, DuelCompleteType type);
     void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg);
     void OnPlayerCustomizeNameQuery(ObjectGuid guid, std::string& name);
+    void OnPlayerNormalizeTargetName(std::string& name);
     void OnPlayerEmote(Player* player, uint32 emote);
     void OnPlayerTextEmote(Player* player, uint32 textEmote, uint32 emoteNum, ObjectGuid guid);
     void OnPlayerSpellCast(Player* player, Spell* spell, bool skipCheck);
@@ -417,6 +419,7 @@ public: /* PlayerScript */
     bool OnPlayerCanSendMail(Player* player, ObjectGuid receiverGuid, ObjectGuid mailbox, std::string& subject, std::string& body, uint32 money, uint32 COD, Item* item);
     void OnPlayerPetitionBuy(Player* player, Creature* creature, uint32& charterid, uint32& cost, uint32& type);
     void OnPlayerPetitionShowList(Player* player, Creature* creature, uint32& CharterEntry, uint32& CharterDispayID, uint32& CharterCost);
+    bool OnPlayerCanSignPetition(Player* player, Petition const* petition, bool& handled);
     void OnPlayerRewardKillRewarder(Player* player, KillRewarder* rewarder, bool isDungeon, float& rate);
     bool OnPlayerCanGiveMailRewardAtGiveLevel(Player* player, uint8 level);
     void OnPlayerDeleteFromDB(CharacterDatabaseTransaction trans, uint32 guid);

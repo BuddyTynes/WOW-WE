@@ -413,6 +413,11 @@ void WorldSession::HandlePetitionSignOpcode(WorldPacket& recvData)
     if (petition->ownerGuid == playerGuid)
         return;
 
+    bool signHandled = false;
+    if (!sScriptMgr->OnPlayerCanSignPetition(_player, petition, signHandled) ||
+        signHandled)
+        return;
+
     Signatures const* signatures = sPetitionMgr->GetSignature(petitionGuid);
     if (!signatures)
         return;

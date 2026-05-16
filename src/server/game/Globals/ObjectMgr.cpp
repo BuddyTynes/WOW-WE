@@ -228,6 +228,14 @@ bool normalizePlayerName(std::string& name)
     return true;
 }
 
+bool normalizePlayerTargetName(std::string& name)
+{
+    name = boost::algorithm::trim_copy(name);
+    sScriptMgr->OnPlayerNormalizeTargetName(name);
+    name = boost::algorithm::trim_copy(name);
+    return normalizePlayerName(name);
+}
+
 LanguageDesc lang_description[LANGUAGES_COUNT] =
 {
     { LANG_ADDON,           0, 0                       },

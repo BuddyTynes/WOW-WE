@@ -43,7 +43,7 @@ void WorldSession::HandleAddFriendOpcode(WorldPacket& recv_data)
     recv_data >> friendName;
     recv_data >> friendNote;
 
-    if (!normalizePlayerName(friendName))
+    if (!normalizePlayerTargetName(friendName))
         return;
 
     ObjectGuid friendGuid = sCharacterCache->GetCharacterGuidByName(friendName);
@@ -107,7 +107,7 @@ void WorldSession::HandleAddIgnoreOpcode(WorldPacket& recv_data)
 
     recv_data >> ignoreName;
 
-    if (!normalizePlayerName(ignoreName))
+    if (!normalizePlayerTargetName(ignoreName))
         return;
 
     LOG_DEBUG("network", "WORLD: {} asked to Ignore: '{}'", GetPlayer()->GetName(), ignoreName);

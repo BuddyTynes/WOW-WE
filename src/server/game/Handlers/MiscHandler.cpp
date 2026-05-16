@@ -1091,7 +1091,7 @@ void WorldSession::HandleWhoisOpcode(WorldPacket& recv_data)
         return;
     }
 
-    if (charname.empty() || !normalizePlayerName (charname))
+    if (charname.empty() || !normalizePlayerTargetName(charname))
     {
         ChatHandler(this).SendNotification(LANG_NEED_CHARACTER_NAME);
         return;

@@ -124,7 +124,7 @@ void WorldSession::HandleSendMail(WorldPacket& recvData)
     }
 
     ObjectGuid receiverGuid;
-    if (normalizePlayerName(receiver))
+    if (normalizePlayerTargetName(receiver))
     {
         receiverGuid = sCharacterCache->GetCharacterGuidByName(receiver);
     }

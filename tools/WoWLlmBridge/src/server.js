@@ -105,6 +105,12 @@ function parseLegacyDirectorPrompt(prompt) {
     speakerGuid: Number.parseInt(fields.speaker_guid || "0", 10) || null,
     speakerLevel: Number.parseInt(fields.speaker_level || "0", 10) || null,
     speakerClass: Number.parseInt(fields.speaker_class || "0", 10) || null,
+    deathCharacter: fields.death_character || "",
+    deathCause: fields.death_cause || "",
+    deathLocation: fields.death_location || "",
+    deathLevel: Number.parseInt(fields.death_level || "0", 10) || null,
+    deathFaction: fields.death_faction || "",
+    deathGuild: fields.death_guild || "",
     message: fields.message || "",
     humanCount: Number.parseInt(fields.human_members_online || "0", 10) || 0,
     botCount: Number.parseInt(fields.bot_members_online || "0", 10) || bots.length,
@@ -850,7 +856,46 @@ function filterLegacyMemoriesForPrompt(parsed, memories) {
   return [...durable.slice(0, 5), ...relationships.slice(0, 3)].slice(0, 8);
 }
 
+function isHardcoreDeathEvent(parsed) {
+  return String(parsed.eventType || "").toLowerCase() === "hardcore_death";
+}
+
+function isSelectedDeadCharacter(parsed, bot) {
+  const selected = String(bot || "").trim().toLowerCase();
+  const dead = String(parsed.deathCharacter || parsed.speaker || "").trim().toLowerCase();
+  return Boolean(selected && dead && selected === dead);
+}
+
+function hardcoreDeathComplaint(parsed, maxLength) {
+  const cause = String(parsed.deathCause || "that").trim();
+  const location = String(parsed.deathLocation || "").trim();
+  const where = location ? ` in ${location}` : "";
+  let line = "";
+
+  if (/\bfall|fell|void\b/i.test(cause)) {
+    line = `I just died${where} because gravity decided to parse me first.`;
+  } else if (/\bdrown|fatigue\b/i.test(cause)) {
+    line = `I just died${where} because apparently breathing was optional.`;
+  } else if (/\blava|fire|burn/i.test(cause)) {
+    line = `I just burned out${where}; that was not a heroic ending.`;
+  } else if (/\bkilled by\b/i.test(cause)) {
+    line = `I just got ${cause}${where} and I am absolutely blaming pathing.`;
+  } else {
+    line = `I just died${where} and I hate every step that led to it.`;
+  }
+
+  return truncateChatLine(line, maxLength);
+}
+
+function looksLikeSelfDeathRoast(message) {
+  return /\b(rip|bozo|l bozo|skill issue|get good|lol|lmao|owned|sit)\b/i.test(String(message || ""));
+}
+
 function forcedLegacySpecificAnswer(parsed, context, bot, maxLength) {
+  if (isHardcoreDeathEvent(parsed) && isSelectedDeadCharacter(parsed, bot)) {
+    return hardcoreDeathComplaint(parsed, maxLength);
+  }
+
   const tactical = String(context.tacticalAnswer || "").trim();
   const known = String(context.knownAnswer || "").trim();
   const recent = String(context.contextAnswer || "").trim()
@@ -910,11 +955,13 @@ function normalizeLegacyDirectorResponse(text, parsed, context = {}) {
   const bot = chooseLegacyBot(parsed, model.bot || model.bot_name || model.speaker);
   const maxLength = context.tacticalAnswer ? 260 : parsed.channel === "party" || parsed.channel === "raid" ? 120 : 180;
   const forcedAnswer = forcedLegacySpecificAnswer(parsed, context, bot, maxLength);
+  const selfDeath = isHardcoreDeathEvent(parsed) && isSelectedDeadCharacter(parsed, bot);
   let message = stripLazyOpening(truncateChatLine(model.message || model.say || model.text || "", maxLength));
-  if ((isOneUsefulRequest(parsed.message) || isMovementRequest(parsed.message) || isShortAnswerRequest(parsed.message) || !message || /\bhold\b/i.test(intent)) && forcedAnswer) {
+  if ((selfDeath || isOneUsefulRequest(parsed.message) || isMovementRequest(parsed.message) || isShortAnswerRequest(parsed.message) || !message || /\bhold\b/i.test(intent)) && forcedAnswer) {
     message = forcedAnswer;
   }
   const rejectReason = !message ? "empty_model_message"
+    : selfDeath && looksLikeSelfDeathRoast(message) ? "self_death_roast"
     : looksLikeEcho(message, parsed.message) ? "echo_player"
     : looksLikeRecentBotRepeat(message, context.recentChat) ? "repeat_recent_bot"
     : looksLikeOverusedOpening(message, context.recentChat, bot) ? "overused_opening"
@@ -924,7 +971,7 @@ function normalizeLegacyDirectorResponse(text, parsed, context = {}) {
     : looksLikeBanterDodge(message, parsed) ? "banter_dodge"
     : looksLikeMemoryAck(message) ? "canned_memory_ack"
     : "";
-  if (rejectReason && forcedAnswer && ["empty_model_message", "echo_player", "tactical_dodge", "canned_memory_ack", "repeat_recent_bot", "incomplete_or_truncated"].includes(rejectReason)) {
+  if (rejectReason && forcedAnswer && ["empty_model_message", "echo_player", "tactical_dodge", "canned_memory_ack", "repeat_recent_bot", "incomplete_or_truncated", "self_death_roast"].includes(rejectReason)) {
     context.normalization = {
       rejected: false,
       rejectReason: "",
@@ -1366,7 +1413,8 @@ function buildLegacyDirectorPrompt(parsed, context = {}) {
     "If the latest message asks for insults, fire back, swing back, or to make chat stupid, escalate with a concrete petty jab at a named bot/player. Do not answer with polite filler, daycare/toddler scolding, or 'just pull'.",
     "Use SPICE_OF_LIFE_STYLE as tone examples. copy-ok lines may be reused exactly only if they fit naturally; style-only lines must not be copied verbatim.",
     "You may form opinions and grudges from RECENT_CHAT, especially about other eligible bots.",
-    "For world or hardcore death events, react like world chat: short, pointed, funny, and aimed at the dead player.",
+    "For world or hardcore death events, non-dead bots may react like world chat: short, pointed, funny, and aimed at the dead player.",
+    "If event_type=hardcore_death and selected_bot_is_dead=1, you are the character who just died. Complain in first person about the death cause. Do not say RIP, L bozo, skill issue, or mock yourself.",
     "Do not ask trivia questions. Do not explain rules. Do not claim you executed game commands.",
     "If the player asks you to move, teleport, follow, or come to them, say the movement command hook is not wired yet.",
     persona ? `You are ${persona.name}: ${persona.seed}` : "",
@@ -1377,7 +1425,14 @@ function buildLegacyDirectorPrompt(parsed, context = {}) {
     `guild_or_group=${parsed.scopeName || parsed.scopeId}`,
     `speaker=${parsed.speaker}`,
     `selected_bot=${context.selectedBot || ""}`,
+    `selected_bot_is_dead=${isSelectedDeadCharacter(parsed, context.selectedBot) ? "1" : "0"}`,
     `eligible_bots=${parsed.bots.join(", ")}`,
+    `death_character=${parsed.deathCharacter || ""}`,
+    `death_cause=${parsed.deathCause || ""}`,
+    `death_location=${parsed.deathLocation || ""}`,
+    `death_level=${parsed.deathLevel || ""}`,
+    `death_faction=${parsed.deathFaction || ""}`,
+    `death_guild=${parsed.deathGuild || ""}`,
     contextAnswer ? `CONTEXT_ANSWER=${contextAnswer}` : "",
     context.knownAnswer ? `KNOWN_ANSWER=${context.knownAnswer}` : "",
     tacticalAnswer ? `TACTICAL_ANSWER=${tacticalAnswer}` : "",

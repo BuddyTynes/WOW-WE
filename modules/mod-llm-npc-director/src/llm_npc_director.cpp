@@ -110,6 +110,12 @@ struct ChatEvent
     uint32 zoneId = 0;
     uint32 areaId = 0;
     std::string message;
+    std::string deathCharacterName;
+    std::string deathCause;
+    std::string deathLocation;
+    std::string deathFaction;
+    std::string deathGuild;
+    uint8 deathLevel = 0;
     ScopeSnapshot scope;
 };
 
@@ -252,6 +258,31 @@ std::string GetLocationName(Player* player)
         return player->FindMap()->GetMapName();
 
     return "somewhere";
+}
+
+std::string GetFactionName(Player* player)
+{
+    if (!player)
+        return "Neutral";
+
+    if (player->GetTeamId() == TEAM_ALLIANCE)
+        return "Alliance";
+
+    if (player->GetTeamId() == TEAM_HORDE)
+        return "Horde";
+
+    return "Neutral";
+}
+
+std::string GetGuildName(Player* player)
+{
+    if (!player)
+        return "guildless";
+
+    if (Guild* guild = player->GetGuild())
+        return guild->GetName();
+
+    return "guildless";
 }
 
 std::string EnvironmentalCause(uint8 type)
@@ -612,6 +643,12 @@ std::string BuildPrompt(ChatEvent const& event)
         << "speaker_class=" << uint32(event.speakerClass) << "\n"
         << "zone=" << event.zoneId << "\n"
         << "area=" << event.areaId << "\n"
+        << "death_character=" << event.deathCharacterName << "\n"
+        << "death_cause=" << event.deathCause << "\n"
+        << "death_location=" << event.deathLocation << "\n"
+        << "death_level=" << uint32(event.deathLevel) << "\n"
+        << "death_faction=" << event.deathFaction << "\n"
+        << "death_guild=" << event.deathGuild << "\n"
         << "human_members_online=" << event.scope.humanCount << "\n"
         << "bot_members_online=" << event.scope.botCount << "\n"
         << "eligible_bots=" << JoinNames(event.scope.botNames) << "\n"
@@ -619,7 +656,9 @@ std::string BuildPrompt(ChatEvent const& event)
         << "Return a short JSON object with intent say_only or hold. "
         << "Allowed party intents for future routing are say_only, follow_leader, assist_target, "
         << "hold_position, move_closer, heal_priority, avoid_combat, need_help. "
-        << "If event_type is hardcore_death, a short world-chat roast is appropriate.";
+        << "If event_type is hardcore_death, bots who are not the dead character "
+        << "may roast the death. If the selected bot is the dead character, they "
+        << "should complain in first person about how they just died.";
 
     return prompt.str();
 }
@@ -639,7 +678,13 @@ std::string BuildBridgeRequest(ChatEvent const& event, DirectorConfig const& con
         << "\"scope_id\":" << event.scopeId << ","
         << "\"scope_name\":\"" << JsonEscape(event.scopeName) << "\","
         << "\"human_count\":" << event.scope.humanCount << ","
-        << "\"bot_count\":" << event.scope.botCount
+        << "\"bot_count\":" << event.scope.botCount << ","
+        << "\"death_character\":\"" << JsonEscape(event.deathCharacterName) << "\","
+        << "\"death_cause\":\"" << JsonEscape(event.deathCause) << "\","
+        << "\"death_location\":\"" << JsonEscape(event.deathLocation) << "\","
+        << "\"death_level\":" << uint32(event.deathLevel) << ","
+        << "\"death_faction\":\"" << JsonEscape(event.deathFaction) << "\","
+        << "\"death_guild\":\"" << JsonEscape(event.deathGuild) << "\""
         << "},"
         << "\"prompt\":\"" << JsonEscape(prompt) << "\""
         << "}";
@@ -1751,7 +1796,7 @@ public:
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& msg, Guild* guild) override
     {
-        if (!guild || !IsEligibleMessage(player, language, msg))
+        if (!guild || IsBot(player) || !IsEligibleMessage(player, language, msg))
             return true;
 
         ScopeSnapshot snapshot = SnapshotGuild(guild->GetId());
@@ -1775,7 +1820,7 @@ public:
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& msg, Group* group) override
     {
-        if (!group || !IsEligibleMessage(player, language, msg))
+        if (!group || IsBot(player) || !IsEligibleMessage(player, language, msg))
             return true;
 
         DirectorConfig config = GetConfig();
@@ -1805,7 +1850,8 @@ public:
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& msg, Channel* channel) override
     {
         DirectorConfig config = GetConfig();
-        if (!channel || !config.worldChatEnable || !IsEligibleMessage(player, language, msg))
+        if (!channel || !config.worldChatEnable || IsBot(player) ||
+            !IsEligibleMessage(player, language, msg))
             return true;
 
         ScopeSnapshot snapshot = SnapshotChannel(channel);
@@ -1849,11 +1895,15 @@ public:
             return;
 
         std::string cause = TakePendingDeathCause(player);
+        std::string location = GetLocationName(player);
+        std::string faction = GetFactionName(player);
+        std::string guild = GetGuildName(player);
         std::string deathMessage = cause.empty()
-            ? Acore::StringFormat("<HC> {} died at level {} in {}.",
-                player->GetName(), player->GetLevel(), GetLocationName(player))
-            : Acore::StringFormat("<HC> {} died at level {} in {}, {}.",
-                player->GetName(), player->GetLevel(), GetLocationName(player), cause);
+            ? Acore::StringFormat("<HC> {} ({}, {}) died at level {} in {}.",
+                player->GetName(), faction, guild, player->GetLevel(), location)
+            : Acore::StringFormat("<HC> {} ({}, {}) died at level {} in {}, {}.",
+                player->GetName(), faction, guild, player->GetLevel(),
+                location, cause);
 
         ChatEvent event = BaseEvent(player, CHAT_MSG_CHANNEL, LANG_UNIVERSAL,
             deathMessage);
@@ -1861,6 +1911,12 @@ public:
         event.channel = "world";
         event.scopeId = StableStringId(config.worldChannelName);
         event.scopeName = config.worldChannelName;
+        event.deathCharacterName = player->GetName();
+        event.deathCause = cause;
+        event.deathLocation = location;
+        event.deathFaction = faction;
+        event.deathGuild = guild;
+        event.deathLevel = player->GetLevel();
         event.scope = std::move(snapshot);
         ForwardEvent(std::move(event));
     }

@@ -689,6 +689,7 @@ SkillRangeType GetSkillRangeType(SkillRaceClassInfoEntry const* rcEntry);
 #define MAX_CHANNEL_NAME         50                         // pussywizard
 
 bool normalizePlayerName(std::string& name);
+bool normalizePlayerTargetName(std::string& name);
 
 struct LanguageDesc
 {
