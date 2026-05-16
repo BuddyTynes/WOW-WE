@@ -433,7 +433,7 @@ pool logic. GM level 1+ accounts can mark an online bot:
 ```
 
 Use the friend boost command to catch up an online real player to the
-group's current level with generated bot-style gear and supplies:
+group's current level with conservative generated gear and supplies:
 
 ```text
 .boost <playerName> <level>
@@ -446,12 +446,14 @@ If the target player is selected, the name can be omitted:
 ```
 
 The command requires GM access, levels the character, learns level-appropriate
-class and trainer spells, assigns talents, equips level-appropriate generated
-gear, and adds bags, consumables, reagents, ammo, mounts, and pets where
-applicable. It does not learn or level professions, so catch-up characters can
+class and trainer spells, assigns talents, adds consumables, reagents, ammo,
+mounts, and pets where applicable, and only replaces gear that is very outdated
+for the target level. Equipped items more recent than five levels below the
+boost target are preserved so the command feels like catch-up support rather
+than a full character reroll. Bags are capped at 10-slot catch-up bags and only
+empty missing/undersized bag slots are upgraded, so filled bags are not
+destroyed. It does not learn or level professions, so catch-up characters can
 still choose their own crafting and gathering path. It only works while the
-target player is online. Generated gear is intentionally conservative for
-catch-up play: the command rolls mostly green gear with occasional blue pieces
-so there is still plenty to replace through dungeon and quest rewards.
+target player is online.
 
 For full host notes and troubleshooting, see [SERVER_BUILD_RUNBOOK.md](SERVER_BUILD_RUNBOOK.md).
