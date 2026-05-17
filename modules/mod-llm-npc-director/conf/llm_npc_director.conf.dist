@@ -18,8 +18,9 @@ LLMNpcDirector.ChannelCooldownMs = 20000
 LLMNpcDirector.DeathCooldownMs = 5000
 LLMNpcDirector.DeathPileOnEnable = 1
 LLMNpcDirector.DeathPileOnMinBots = 3
-LLMNpcDirector.DeathPileOnMaxBots = 7
+LLMNpcDirector.DeathPileOnMaxBots = 8
 LLMNpcDirector.DeathPileOnDelayMs = 1200
+LLMNpcDirector.BurstBotCooldownMs = 60000
 
 # Cheap no-model ambient chatter. This samples exact-safe real chat-log lines
 # from the bridge and routes them through an online bot in the World channel.
@@ -34,8 +35,8 @@ LLMNpcDirector.AmbientSpiceOnlyWithHumans = 1
 LLMNpcDirector.WorldArgumentEnable = 1
 LLMNpcDirector.WorldArgumentIntervalMs = 300000
 LLMNpcDirector.WorldArgumentChancePct = 25
-LLMNpcDirector.WorldArgumentMinBots = 2
-LLMNpcDirector.WorldArgumentMaxBots = 4
+LLMNpcDirector.WorldArgumentMinBots = 3
+LLMNpcDirector.WorldArgumentMaxBots = 6
 LLMNpcDirector.WorldArgumentDelayMs = 3500
 
 # Structured action lane. When enabled, party/raid chat is also sent to the

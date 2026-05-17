@@ -24,6 +24,10 @@ Current safety posture:
   `WOW_LLM_SPICE_LINES`, `WOW_LLM_SPICE_EXACT_CHANCE`, and
   `WOW_LLM_SPICE_MIN_QUALITY` control how many style examples are added to
   director prompts and how often exact-safe lines may be reused.
+- `WOW_LLM_BURST_MAX_LINES` and `WOW_LLM_BURST_SPICE_LINES` bound the
+  multi-bot director burst endpoint used for hardcore death pile-ons and
+  World-channel argument beats. If the local model is not running, the
+  worldserver falls back to bounded canned lines.
 - `/health` reports queue/circuit/cap state plus memory DB health and counts.
   `/health?probe=1` also probes the OpenAI-compatible `/models` endpoint.
   `apiKeyRequired=false` and `hasApiKey=false` are expected for local

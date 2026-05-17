@@ -241,13 +241,14 @@ if (Test-Path $llmDirectorSource) {
         "LLMNpcDirector.AmbientSpiceOnlyWithHumans" = "1"
         "LLMNpcDirector.DeathPileOnEnable" = "1"
         "LLMNpcDirector.DeathPileOnMinBots" = "3"
-        "LLMNpcDirector.DeathPileOnMaxBots" = "7"
+        "LLMNpcDirector.DeathPileOnMaxBots" = "8"
         "LLMNpcDirector.DeathPileOnDelayMs" = "1200"
+        "LLMNpcDirector.BurstBotCooldownMs" = "60000"
         "LLMNpcDirector.WorldArgumentEnable" = "1"
         "LLMNpcDirector.WorldArgumentIntervalMs" = "300000"
         "LLMNpcDirector.WorldArgumentChancePct" = "25"
-        "LLMNpcDirector.WorldArgumentMinBots" = "2"
-        "LLMNpcDirector.WorldArgumentMaxBots" = "4"
+        "LLMNpcDirector.WorldArgumentMinBots" = "3"
+        "LLMNpcDirector.WorldArgumentMaxBots" = "6"
         "LLMNpcDirector.WorldArgumentDelayMs" = "3500"
     }
 

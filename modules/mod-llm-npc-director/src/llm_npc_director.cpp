@@ -64,8 +64,9 @@ struct DirectorConfig
     uint32 deathCooldownMs = 5000;
     bool deathPileOnEnable = true;
     uint32 deathPileOnMinBots = 3;
-    uint32 deathPileOnMaxBots = 7;
+    uint32 deathPileOnMaxBots = 8;
     uint32 deathPileOnDelayMs = 1200;
+    uint32 burstBotCooldownMs = 60000;
     bool ambientSpiceEnable = true;
     uint32 ambientSpiceIntervalMs = 120000;
     uint32 ambientSpiceChancePct = 40;
@@ -74,8 +75,8 @@ struct DirectorConfig
     bool worldArgumentEnable = true;
     uint32 worldArgumentIntervalMs = 300000;
     uint32 worldArgumentChancePct = 25;
-    uint32 worldArgumentMinBots = 2;
-    uint32 worldArgumentMaxBots = 4;
+    uint32 worldArgumentMinBots = 3;
+    uint32 worldArgumentMaxBots = 6;
     uint32 worldArgumentDelayMs = 3500;
     bool actionDirectorEnable = false;
     std::string actionDirectorUrl = "http://wow-llm-bridge:11434/api/action/event";
@@ -144,6 +145,13 @@ struct DirectorAction
     bool bypassRouteThrottle = false;
 };
 
+struct BurstLine
+{
+    std::string botName;
+    std::string message;
+    uint32 delayMs = 0;
+};
+
 struct BatchedChatLine
 {
     ObjectGuid::LowType speakerGuid = 0;
@@ -170,6 +178,7 @@ std::mutex g_actionQueueMutex;
 std::mutex g_deathCauseMutex;
 std::unordered_map<std::string, uint32> g_lastForwardMs;
 std::unordered_map<std::string, uint32> g_lastRouteMs;
+std::unordered_map<std::string, uint32> g_lastBurstBotMs;
 std::unordered_map<std::string, PendingChatBatch> g_pendingBatches;
 std::deque<DirectorAction> g_actionQueue;
 std::unordered_map<ObjectGuid::LowType, std::string> g_pendingDeathCauses;
@@ -532,6 +541,139 @@ std::vector<std::string> ExtractRepeatedJsonStringField(std::string_view json, s
     return values;
 }
 
+std::optional<uint32> ExtractJsonUIntField(std::string_view json, std::string_view key)
+{
+    std::size_t pos = 0;
+    while ((pos = json.find('"', pos)) != std::string_view::npos)
+    {
+        std::size_t keyStart = pos;
+        std::optional<std::string> parsedKey = ParseJsonStringAt(json, pos);
+        if (!parsedKey)
+            return std::nullopt;
+
+        if (*parsedKey != key)
+            continue;
+
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (pos >= json.size() || json[pos] != ':')
+        {
+            pos = keyStart + 1;
+            continue;
+        }
+
+        ++pos;
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        std::size_t start = pos;
+        while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (start == pos)
+            return std::nullopt;
+
+        try
+        {
+            return static_cast<uint32>(std::stoul(std::string(json.substr(start, pos - start))));
+        }
+        catch (...)
+        {
+            return std::nullopt;
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::vector<std::string> ExtractJsonObjectArrayField(std::string_view json, std::string_view key)
+{
+    std::vector<std::string> objects;
+    std::size_t pos = 0;
+    while ((pos = json.find('"', pos)) != std::string_view::npos)
+    {
+        std::size_t keyStart = pos;
+        std::optional<std::string> parsedKey = ParseJsonStringAt(json, pos);
+        if (!parsedKey)
+            return objects;
+
+        if (*parsedKey != key)
+            continue;
+
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (pos >= json.size() || json[pos] != ':')
+        {
+            pos = keyStart + 1;
+            continue;
+        }
+
+        ++pos;
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        if (pos >= json.size() || json[pos] != '[')
+            return objects;
+
+        ++pos;
+        while (pos < json.size())
+        {
+            while (pos < json.size() && (std::isspace(static_cast<unsigned char>(json[pos])) || json[pos] == ','))
+                ++pos;
+
+            if (pos >= json.size() || json[pos] == ']')
+                return objects;
+
+            if (json[pos] != '{')
+            {
+                ++pos;
+                continue;
+            }
+
+            std::size_t start = pos;
+            uint32 depth = 0;
+            bool inString = false;
+            bool escaped = false;
+            while (pos < json.size())
+            {
+                char c = json[pos++];
+                if (inString)
+                {
+                    if (escaped)
+                        escaped = false;
+                    else if (c == '\\')
+                        escaped = true;
+                    else if (c == '"')
+                        inString = false;
+                    continue;
+                }
+
+                if (c == '"')
+                    inString = true;
+                else if (c == '{')
+                    ++depth;
+                else if (c == '}')
+                {
+                    if (depth == 0)
+                        break;
+                    --depth;
+                    if (depth == 0)
+                    {
+                        objects.push_back(std::string(json.substr(start, pos - start)));
+                        break;
+                    }
+                }
+            }
+        }
+
+        return objects;
+    }
+
+    return objects;
+}
+
 std::string ExtractJsonObjectText(std::string value)
 {
     value = Trim(std::move(value));
@@ -755,6 +897,43 @@ std::string BuildActionDirectorRequest(ChatEvent const& event)
     return json.str();
 }
 
+std::string BuildBurstRequest(ChatEvent const& event, std::string_view burstType,
+    uint32 requestedCount, uint32 delayMs)
+{
+    std::ostringstream bots;
+    bool firstBot = true;
+    for (std::string const& botName : event.scope.botNames)
+    {
+        if (!firstBot)
+            bots << ",";
+        firstBot = false;
+        bots << "\"" << JsonEscape(botName) << "\"";
+    }
+
+    std::ostringstream json;
+    json
+        << "{"
+        << "\"event_id\":\"" << event.id << "\","
+        << "\"burst_type\":\"" << JsonEscape(burstType) << "\","
+        << "\"channel\":\"" << JsonEscape(event.channel) << "\","
+        << "\"scope_id\":" << event.scopeId << ","
+        << "\"scope_name\":\"" << JsonEscape(event.scopeName) << "\","
+        << "\"speaker\":\"" << JsonEscape(event.speakerName) << "\","
+        << "\"message\":\"" << JsonEscape(event.message) << "\","
+        << "\"requested_count\":" << requestedCount << ","
+        << "\"delay_ms\":" << delayMs << ","
+        << "\"eligible_bots\":[" << bots.str() << "],"
+        << "\"death_character\":\"" << JsonEscape(event.deathCharacterName) << "\","
+        << "\"death_cause\":\"" << JsonEscape(event.deathCause) << "\","
+        << "\"death_location\":\"" << JsonEscape(event.deathLocation) << "\","
+        << "\"death_level\":" << uint32(event.deathLevel) << ","
+        << "\"death_faction\":\"" << JsonEscape(event.deathFaction) << "\","
+        << "\"death_guild\":\"" << JsonEscape(event.deathGuild) << "\""
+        << "}";
+
+    return json.str();
+}
+
 bool IsPartyIntent(std::string const& intent)
 {
     return intent == "follow_leader" || intent == "assist_target" || intent == "hold_position" ||
@@ -886,6 +1065,31 @@ std::optional<DirectorAction> ParseBridgeAction(ChatEvent const& event, std::str
     return action;
 }
 
+std::vector<BurstLine> ParseBurstLines(std::string const& responseBody,
+    uint32 fallbackDelayMs)
+{
+    std::vector<BurstLine> lines;
+    std::string payload = ExtractJsonStringField(responseBody, "response")
+        .value_or(responseBody);
+
+    for (std::string const& object : ExtractJsonObjectArrayField(payload, "lines"))
+    {
+        BurstLine line;
+        line.botName = Trim(ExtractJsonStringField(object, "bot")
+            .value_or(ExtractJsonStringField(object, "bot_name").value_or("")));
+        line.message = Trim(ExtractJsonStringField(object, "message")
+            .value_or(ExtractJsonStringField(object, "say")
+            .value_or(ExtractJsonStringField(object, "text").value_or(""))));
+        line.delayMs = ExtractJsonUIntField(object, "delay_ms")
+            .value_or(static_cast<uint32>(lines.size()) * fallbackDelayMs);
+
+        if (!line.botName.empty() && !line.message.empty())
+            lines.push_back(std::move(line));
+    }
+
+    return lines;
+}
+
 void EnqueueDirectorAction(DirectorAction action)
 {
     std::lock_guard<std::mutex> lock(g_actionQueueMutex);
@@ -976,20 +1180,142 @@ void PostAmbientSpiceAction(DirectorAction action)
 }
 
 std::vector<std::string> BuildWorldArgumentLines(std::string seed);
+std::string DeathPileOnLine(std::string const& deadName,
+    std::string const& cause, uint32 index);
+void EnqueueBurstFallback(ChatEvent const& event, DirectorConfig const& config,
+    std::string_view burstType, std::vector<std::string> const& bots,
+    uint32 delayMs);
 
-void PostWorldArgumentActions(std::vector<DirectorAction> actions)
+void EnqueueBurstLines(ChatEvent const& event, DirectorConfig const& config,
+    std::vector<BurstLine> const& lines)
 {
-    if (actions.empty())
-        return;
-
-    DirectorConfig config = GetConfig();
-    std::optional<std::string> seed = FetchSpiceLine(config);
-    std::vector<std::string> lines = BuildWorldArgumentLines(seed.value_or(""));
-
-    for (std::size_t i = 0; i < actions.size(); ++i)
+    uint32 now = GameTime::GetGameTimeMS().count();
+    uint32 queued = 0;
+    for (BurstLine const& line : lines)
     {
-        actions[i].message = lines[i % lines.size()];
-        EnqueueDirectorAction(std::move(actions[i]));
+        if (queued >= 12)
+            break;
+
+        DirectorAction action;
+        action.eventId = event.id;
+        action.channel = "world";
+        action.scopeId = event.scopeId;
+        action.scopeName = event.scopeName;
+        action.botName = line.botName;
+        action.intent = "say_only";
+        action.message = TruncateForEvent(line.message, config);
+        action.notBeforeMs = now + line.delayMs;
+        action.bypassRouteThrottle = true;
+        EnqueueDirectorAction(std::move(action));
+        ++queued;
+    }
+}
+
+void FillMissingBurstLines(ChatEvent const& event, std::string_view burstType,
+    std::vector<std::string> const& fallbackBots, uint32 requestedCount,
+    uint32 delayMs, std::vector<BurstLine>& lines)
+{
+    std::vector<std::string> argumentLines = burstType == "world_argument"
+        ? BuildWorldArgumentLines("")
+        : std::vector<std::string>();
+
+    for (std::string const& botName : fallbackBots)
+    {
+        if (lines.size() >= requestedCount)
+            return;
+
+        auto used = std::find_if(lines.begin(), lines.end(),
+            [&botName](BurstLine const& line)
+            {
+                return ToLower(line.botName) == ToLower(botName);
+            });
+        if (used != lines.end())
+            continue;
+
+        BurstLine line;
+        line.botName = botName;
+        line.message = burstType == "world_argument"
+            ? argumentLines[lines.size() % argumentLines.size()]
+            : DeathPileOnLine(event.deathCharacterName, event.deathCause,
+                static_cast<uint32>(lines.size()));
+        line.delayMs = static_cast<uint32>(lines.size()) *
+            std::max<uint32>(delayMs, 500);
+        lines.push_back(std::move(line));
+    }
+}
+
+void PostDirectorBurst(ChatEvent event, std::string burstType,
+    uint32 requestedCount, uint32 delayMs, std::vector<std::string> fallbackBots)
+{
+    DirectorConfig config = GetConfig();
+    BridgeUrl url = ParseBridgeUrl(config.bridgeUrl);
+    url.target = "/api/director/burst";
+    std::string body = BuildBurstRequest(event, burstType, requestedCount, delayMs);
+
+    try
+    {
+        boost::asio::ip::tcp::iostream stream;
+        stream.expires_after(std::chrono::milliseconds(config.httpTimeoutMs));
+        stream.connect(url.host, url.port);
+        if (!stream)
+            throw std::runtime_error(stream.error().message());
+
+        stream
+            << "POST " << url.target << " HTTP/1.1\r\n"
+            << "Host: " << url.host << "\r\n"
+            << "User-Agent: mod-llm-npc-director-burst\r\n"
+            << "Content-Type: application/json\r\n"
+            << "X-Event-Id: " << event.id << "\r\n"
+            << "Content-Length: " << body.size() << "\r\n"
+            << "Connection: close\r\n\r\n"
+            << body;
+
+        stream.flush();
+
+        std::string httpVersion;
+        unsigned int status = 0;
+        stream >> httpVersion >> status;
+
+        std::string headerLine;
+        std::getline(stream, headerLine);
+        while (std::getline(stream, headerLine) && headerLine != "\r")
+        {
+        }
+
+        std::string responseBody((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        if (status < 200 || status >= 300)
+        {
+            LOG_WARN("module.llm-npc-director",
+                "Burst bridge returned HTTP {} for event {} ({}): {}",
+                status, event.id, burstType, responseBody.substr(0, 300));
+            EnqueueBurstFallback(event, config, burstType, fallbackBots, delayMs);
+            return;
+        }
+
+        std::vector<BurstLine> lines = ParseBurstLines(responseBody, delayMs);
+        if (lines.empty())
+        {
+            LOG_WARN("module.llm-npc-director",
+                "Burst bridge returned no usable lines for event {} ({})",
+                event.id, burstType);
+            EnqueueBurstFallback(event, config, burstType, fallbackBots, delayMs);
+            return;
+        }
+
+        FillMissingBurstLines(event, burstType, fallbackBots, requestedCount,
+            delayMs, lines);
+
+        LOG_DEBUG("module.llm-npc-director",
+            "Burst bridge accepted {} line(s) for event {} ({})",
+            lines.size(), event.id, burstType);
+        EnqueueBurstLines(event, config, lines);
+    }
+    catch (std::exception const& ex)
+    {
+        LOG_WARN("module.llm-npc-director",
+            "Burst bridge failed for event {} ({}): {}",
+            event.id, burstType, ex.what());
+        EnqueueBurstFallback(event, config, burstType, fallbackBots, delayMs);
     }
 }
 
@@ -1025,12 +1351,6 @@ void PostToBridge(ChatEvent event)
         unsigned int status = 0;
         stream >> httpVersion >> status;
 
-        if (status < 200 || status >= 300)
-        {
-            LOG_WARN("module.llm-npc-director", "Bridge returned HTTP {} for event {}", status, event.id);
-            return;
-        }
-
         std::string headerLine;
         std::getline(stream, headerLine);
         while (std::getline(stream, headerLine) && headerLine != "\r")
@@ -1038,6 +1358,13 @@ void PostToBridge(ChatEvent event)
         }
 
         std::string responseBody((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        if (status < 200 || status >= 300)
+        {
+            LOG_WARN("module.llm-npc-director",
+                "Bridge returned HTTP {} for event {}: {}",
+                status, event.id, responseBody.substr(0, 300));
+            return;
+        }
         if (config.routeSayResponses || config.routePartyIntents)
         {
             if (std::optional<DirectorAction> action = ParseBridgeAction(event, responseBody))
@@ -1348,8 +1675,24 @@ std::vector<std::string> PickBotBurst(ScopeSnapshot const& snapshot,
     uint64 eventId)
 {
     std::vector<std::string> eligible;
+    std::vector<std::string> recent;
+    DirectorConfig config = GetConfig();
+    uint32 now = GameTime::GetGameTimeMS().count();
     for (std::string const& botName : snapshot.botNames)
+    {
         if (botName != excludedName)
+        {
+            std::lock_guard<std::mutex> lock(g_cooldownMutex);
+            uint32 last = g_lastBurstBotMs[ToLower(botName)];
+            if (last != 0 && getMSTimeDiff(last, now) < config.burstBotCooldownMs)
+                recent.push_back(botName);
+            else
+                eligible.push_back(botName);
+        }
+    }
+
+    for (std::string const& botName : recent)
+        if (eligible.size() < minCount)
             eligible.push_back(botName);
 
     if (eligible.empty())
@@ -1368,7 +1711,14 @@ std::vector<std::string> PickBotBurst(ScopeSnapshot const& snapshot,
     std::vector<std::string> picked;
     picked.reserve(count);
     for (uint32 i = 0; i < count; ++i)
-        picked.push_back(eligible[static_cast<std::size_t>((start + i) % eligible.size())]);
+    {
+        std::string botName = eligible[static_cast<std::size_t>((start + i) % eligible.size())];
+        {
+            std::lock_guard<std::mutex> lock(g_cooldownMutex);
+            g_lastBurstBotMs[ToLower(botName)] = now;
+        }
+        picked.push_back(std::move(botName));
+    }
 
     return picked;
 }
@@ -1434,6 +1784,35 @@ std::vector<std::string> BuildWorldArgumentLines(std::string seed)
         "both of you are wrong but keep going",
         "this is exactly why nobody reads quest text"
     };
+}
+
+void EnqueueBurstFallback(ChatEvent const& event, DirectorConfig const& config,
+    std::string_view burstType, std::vector<std::string> const& bots,
+    uint32 delayMs)
+{
+    uint32 now = GameTime::GetGameTimeMS().count();
+    std::vector<std::string> lines = burstType == "world_argument"
+        ? BuildWorldArgumentLines("")
+        : std::vector<std::string>();
+
+    for (std::size_t i = 0; i < bots.size(); ++i)
+    {
+        DirectorAction action;
+        action.eventId = event.id;
+        action.channel = "world";
+        action.scopeId = event.scopeId;
+        action.scopeName = event.scopeName;
+        action.botName = bots[i];
+        action.intent = "say_only";
+        action.message = burstType == "world_argument"
+            ? lines[i % lines.size()]
+            : DeathPileOnLine(event.deathCharacterName, event.deathCause,
+                static_cast<uint32>(i));
+        action.notBeforeMs = now + static_cast<uint32>(i) *
+            std::max<uint32>(delayMs, 500);
+        action.bypassRouteThrottle = true;
+        EnqueueDirectorAction(std::move(action));
+    }
 }
 
 void MaybeQueueAmbientSpice()
@@ -1504,26 +1883,24 @@ void MaybeQueueWorldArgument()
     if (bots.size() < 2)
         return;
 
-    std::vector<DirectorAction> actions;
-    actions.reserve(bots.size());
-    for (std::size_t i = 0; i < bots.size(); ++i)
-    {
-        DirectorAction action;
-        action.eventId = eventId;
-        action.channel = "world";
-        action.scopeId = StableStringId(config.worldChannelName);
-        action.scopeName = config.worldChannelName;
-        action.botName = bots[i];
-        action.intent = "say_only";
-        action.notBeforeMs = now + static_cast<uint32>(i) *
-            std::max<uint32>(config.worldArgumentDelayMs, 1000);
-        action.bypassRouteThrottle = true;
-        actions.push_back(std::move(action));
-    }
+    ChatEvent event;
+    event.id = eventId;
+    event.eventType = "world_argument";
+    event.channel = "world";
+    event.scopeId = StableStringId(config.worldChannelName);
+    event.scopeName = config.worldChannelName;
+    event.speakerName = "World";
+    event.message = "Start a small World chat argument using Spice of Life chat as tone fuel.";
+    event.scope = std::move(snapshot);
+    event.scope.botNames = bots;
 
-    LOG_DEBUG("module.llm-npc-director", "Queueing world argument with {} bot(s) in '{}'",
-        actions.size(), config.worldChannelName);
-    std::thread(PostWorldArgumentActions, std::move(actions)).detach();
+    LOG_DEBUG("module.llm-npc-director",
+        "Queueing LLM world argument with {} bot(s) in '{}'",
+        event.scope.botNames.size(), config.worldChannelName);
+    std::thread(PostDirectorBurst, std::move(event), std::string("world_argument"),
+        static_cast<uint32>(bots.size()),
+        std::max<uint32>(config.worldArgumentDelayMs, 1000),
+        std::move(bots)).detach();
 }
 
 void QueueHardcoreDeathPileOn(ChatEvent const& event,
@@ -1539,23 +1916,13 @@ void QueueHardcoreDeathPileOn(ChatEvent const& event,
     if (bots.empty())
         return;
 
-    uint32 now = GameTime::GetGameTimeMS().count();
-    for (std::size_t i = 0; i < bots.size(); ++i)
-    {
-        DirectorAction action;
-        action.eventId = eventId;
-        action.channel = "world";
-        action.scopeId = event.scopeId;
-        action.scopeName = event.scopeName;
-        action.botName = bots[i];
-        action.intent = "say_only";
-        action.message = DeathPileOnLine(event.deathCharacterName,
-            event.deathCause, static_cast<uint32>(i));
-        action.notBeforeMs = now + static_cast<uint32>(i) *
-            std::max<uint32>(config.deathPileOnDelayMs, 500);
-        action.bypassRouteThrottle = true;
-        EnqueueDirectorAction(std::move(action));
-    }
+    ChatEvent burstEvent = event;
+    burstEvent.id = eventId;
+    burstEvent.scope.botNames = bots;
+    std::thread(PostDirectorBurst, std::move(burstEvent), std::string("death_pile_on"),
+        static_cast<uint32>(bots.size()),
+        std::max<uint32>(config.deathPileOnDelayMs, 500),
+        std::move(bots)).detach();
 }
 
 Player* FindGuildBot(uint32 guildId, std::string const& botName)
@@ -1997,8 +2364,9 @@ public:
         config.deathCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathCooldownMs", 5000);
         config.deathPileOnEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.DeathPileOnEnable", true);
         config.deathPileOnMinBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathPileOnMinBots", 3);
-        config.deathPileOnMaxBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathPileOnMaxBots", 7);
+        config.deathPileOnMaxBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathPileOnMaxBots", 8);
         config.deathPileOnDelayMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathPileOnDelayMs", 1200);
+        config.burstBotCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.BurstBotCooldownMs", 60000);
         config.ambientSpiceEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.AmbientSpiceEnable", true);
         config.ambientSpiceIntervalMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceIntervalMs", 120000);
         config.ambientSpiceChancePct = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceChancePct", 40));
@@ -2007,8 +2375,8 @@ public:
         config.worldArgumentEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.WorldArgumentEnable", true);
         config.worldArgumentIntervalMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentIntervalMs", 300000);
         config.worldArgumentChancePct = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentChancePct", 25));
-        config.worldArgumentMinBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentMinBots", 2);
-        config.worldArgumentMaxBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentMaxBots", 4);
+        config.worldArgumentMinBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentMinBots", 3);
+        config.worldArgumentMaxBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentMaxBots", 6);
         config.worldArgumentDelayMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentDelayMs", 3500);
         config.actionDirectorEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.ActionDirectorEnable", false);
         config.actionDirectorUrl = sConfigMgr->GetOption<std::string>("LLMNpcDirector.ActionDirectorUrl", "http://wow-llm-bridge:11434/api/action/event");

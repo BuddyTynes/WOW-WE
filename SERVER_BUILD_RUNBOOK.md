@@ -112,7 +112,11 @@ SmallGroup.WorldChannel.Enable = 1
 SmallGroup.WorldChannel.InitialJoinDelaySeconds = 5
 SmallGroup.ToolGatedGathering.Enable = 1
 LLMNpcDirector.DeathPileOnEnable = 1
+LLMNpcDirector.DeathPileOnMaxBots = 8
+LLMNpcDirector.BurstBotCooldownMs = 60000
 LLMNpcDirector.WorldArgumentEnable = 1
+LLMNpcDirector.WorldArgumentMinBots = 3
+LLMNpcDirector.WorldArgumentMaxBots = 6
 AiPlayerbot.DisableRandomLevels = 1
 AiPlayerbot.RandombotStartingLevel = 1
 AiPlayerbot.AutoUpgradeEquip = 0
@@ -135,8 +139,9 @@ the core will resync the visible client channel entry even when the server
 already has membership.
 
 The LLM director can intentionally create multi-bot World-channel argument
-beats and hardcore death pile-ons. These are queued director events and do not
-re-enable bot-origin chat feedback loops.
+beats and hardcore death pile-ons. These queued bursts ask the bridge/model for
+several staggered lines, but fall back to bounded canned lines when the local
+LLM is down. They do not re-enable bot-origin chat feedback loops.
 
 ## What Was Installed
 

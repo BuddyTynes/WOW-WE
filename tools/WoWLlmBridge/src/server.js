@@ -1447,6 +1447,129 @@ function buildLegacyDirectorPrompt(parsed, context = {}) {
   ].join("\n");
 }
 
+function burstScope(body) {
+  const channel = body.channel === "channel" ? "channel" : "world";
+  const rawScope = body.scope_id || body.scopeId || body.scope_name || body.scopeName || "unknown";
+  return { scopeType: channel, scopeId: `${channel}:${rawScope}` };
+}
+
+function buildBurstPrompt(body, context = {}) {
+  const spiceLines = (context.spiceLines || [])
+    .map(formatSpiceLine)
+    .filter(Boolean)
+    .join("\n") || "(none)";
+  const recentChat = (context.recentChat || [])
+    .map(formatRecentChat)
+    .filter(Boolean)
+    .join("\n") || "(none)";
+  const burstType = String(body.burst_type || body.burstType || "world_argument");
+  const requested = context.requestedCount || 3;
+  const bots = context.eligibleBots || [];
+  const common = [
+    "Return only minified JSON. No markdown, no analysis, no extra text.",
+    "Schema: {\"lines\":[{\"bot\":\"BOT_NAME\",\"message\":\"SHORT_CHAT_LINE\",\"delay_ms\":NUMBER}]}",
+    `Pick ${requested} different bots from eligible_bots. Do not invent names.`,
+    "Every line must sound like messy private-server World chat, not an assistant.",
+    "Keep each message under 160 characters. No slash commands. No game command claims.",
+    "Use SPICE_OF_LIFE_STYLE as tone fuel. copy-ok lines may be reused only if they fit; style-only lines must not be copied exactly.",
+    "RECENT_CHAT is context. Do not repeat recent bot lines.",
+    "Bot lines are intentional burst output; do not ask follow-up trivia questions."
+  ];
+  const deathRules = [
+    "This is a hardcore death pile-on. The dead character is not allowed to speak in this burst.",
+    "React like World chat: short, mean-funny, and cause-aware.",
+    "Use lines like RIP, L bozo, skill issue, deserved, oof, press F, or a fresh roast when they fit.",
+    "Mention faction, guild, level, location, or cause if it makes the joke sharper."
+  ];
+  const argumentRules = [
+    "This is a World chat argument starter. Make it feel like a few players wandered into the same dumb topic.",
+    "Line 1 should open with a Spice-inspired claim, complaint, question, or bait.",
+    "Later lines should disagree, pile on, correct, mock, or escalate the topic.",
+    "The burst must naturally stop; do not create a call-and-response loop that needs more messages."
+  ];
+  return [
+    ...common,
+    ...(burstType === "death_pile_on" ? deathRules : argumentRules),
+    `burst_type=${burstType}`,
+    `eligible_bots=${bots.join(", ")}`,
+    `requested_count=${requested}`,
+    `world_channel=${body.scope_name || body.scopeName || "World"}`,
+    `death_character=${body.death_character || body.deathCharacter || ""}`,
+    `death_cause=${body.death_cause || body.deathCause || ""}`,
+    `death_location=${body.death_location || body.deathLocation || ""}`,
+    `death_level=${body.death_level || body.deathLevel || ""}`,
+    `death_faction=${body.death_faction || body.deathFaction || ""}`,
+    `death_guild=${body.death_guild || body.deathGuild || ""}`,
+    `event_message=${body.message || ""}`,
+    `SPICE_OF_LIFE_STYLE:\n${spiceLines}`,
+    `RECENT_CHAT:\n${recentChat}`
+  ].join("\n");
+}
+
+function parseBurstModel(rawText) {
+  const parsed = extractJsonObject(rawText);
+  if (parsed && Array.isArray(parsed.lines)) {
+    return parsed.lines;
+  }
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  return [];
+}
+
+function normalizeBurstLines(rawLines, body, context = {}) {
+  const eligible = new Set((context.eligibleBots || []).map((bot) => bot.toLowerCase()));
+  const originalName = new Map((context.eligibleBots || []).map((bot) => [bot.toLowerCase(), bot]));
+  const used = new Set();
+  const recent = (context.recentChat || [])
+    .map((chat) => normalizeForCompare(chat.text || ""))
+    .filter(Boolean);
+  const deadName = String(body.death_character || body.deathCharacter || "").toLowerCase();
+  const burstType = String(body.burst_type || body.burstType || "");
+  const maxLines = context.requestedCount || 3;
+  const accepted = [];
+  const rejected = [];
+
+  for (const raw of rawLines || []) {
+    const botKey = String(raw && (raw.bot || raw.bot_name || raw.speaker) || "").trim().toLowerCase();
+    let message = truncateChatLine(raw && (raw.message || raw.say || raw.text), 160);
+    const delayMs = Math.max(0, Math.min(120000, Number.parseInt(raw && (raw.delay_ms || raw.delayMs), 10) || accepted.length * (context.delayMs || 1500)));
+    let reason = "";
+
+    if (!eligible.has(botKey)) {
+      reason = "invalid_bot";
+    } else if (used.has(botKey)) {
+      reason = "duplicate_bot";
+    } else if (burstType === "death_pile_on" && botKey === deadName) {
+      reason = "dead_bot_in_pile_on";
+    } else if (!message) {
+      reason = "empty_message";
+    } else if (/^[./]\s*\S+/.test(message)) {
+      reason = "command_like";
+    } else if (recent.some((line) => line && normalizeForCompare(message) === line)) {
+      reason = "recent_repeat";
+    }
+
+    if (reason) {
+      rejected.push({ bot: botKey || "", message, reason });
+      continue;
+    }
+
+    used.add(botKey);
+    accepted.push({
+      bot: originalName.get(botKey),
+      message,
+      delay_ms: delayMs
+    });
+
+    if (accepted.length >= maxLines) {
+      break;
+    }
+  }
+
+  return { accepted, rejected };
+}
+
 function cryptoRandomId() {
   return `evt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -1589,6 +1712,145 @@ function createBridge(config = loadConfig()) {
     sendOllamaText(res, body, text);
   }
 
+  async function handleDirectorBurst(req, res) {
+    await memoryReady;
+    const body = await readJson(req, 128 * 1024);
+    const eligibleBots = Array.from(new Set((Array.isArray(body.eligible_bots) ? body.eligible_bots : [])
+      .map((bot) => String(bot || "").trim())
+      .filter(Boolean)));
+    const requestedCount = Math.max(1, Math.min(
+      config.burstMaxLines || 8,
+      Number.parseInt(body.requested_count, 10) || Math.min(eligibleBots.length, 3)
+    ));
+    const delayMs = Math.max(500, Math.min(10000, Number.parseInt(body.delay_ms, 10) || 1500));
+    const scope = burstScope(body);
+    const metadata = {
+      eventId: body.event_id || cryptoRandomId(),
+      channel: body.channel || "world",
+      bot: "burst",
+      player: body.speaker || "World"
+    };
+
+    if (eligibleBots.length === 0) {
+      sendJson(res, 400, { ok: false, error: "no eligible bots", lines: [] });
+      return;
+    }
+
+    const task = async ({ queuedMs }) => {
+      circuit.beforeRequest();
+      const start = Date.now();
+      try {
+        const recentResult = await store.getRecentChat({
+          scope_type: scope.scopeType,
+          scope_id: scope.scopeId,
+          channel_type: scope.scopeType,
+          limit: 16
+        });
+        const spiceResult = config.spiceEnable === false ? null : await store.getChatInspiration({
+          channel_type: scope.scopeType,
+          limit: config.burstSpiceLines === undefined ? 10 : config.burstSpiceLines,
+          min_quality: config.spiceMinQuality === undefined ? 50 : config.spiceMinQuality,
+          exact_chance: config.spiceExactChance === undefined ? 15 : config.spiceExactChance
+        });
+        const context = {
+          eligibleBots,
+          requestedCount,
+          delayMs,
+          recentChat: recentResult && recentResult.ok ? recentResult.data.events : [],
+          spiceLines: spiceResult && spiceResult.ok ? spiceResult.data.lines : []
+        };
+        const prompt = capPrompt(buildBurstPrompt(body, context), config);
+        const rawText = await complete(prompt, config);
+        const normalized = normalizeBurstLines(parseBurstModel(rawText), body, context);
+
+        if (normalized.accepted.length === 0) {
+          const error = new Error("burst model returned no valid lines");
+          error.code = "NO_VALID_BURST_LINES";
+          error.details = normalized.rejected;
+          throw error;
+        }
+
+        for (const line of normalized.accepted) {
+          const botGuid = stableLegacyId(`legacy-bot:${String(line.bot).toLowerCase()}`);
+          await store.upsertBotProfile({
+            bot_guid: botGuid,
+            bot_key: `legacy:${String(line.bot).toLowerCase()}`,
+            name: line.bot,
+            tier: 2,
+            enabled: true,
+            temperament: "world chatter",
+            speech_style: "casual private-server World chat",
+            personality_seed: `${line.bot} is a playerbot who can join bounded World chat bursts.`
+          });
+          await store.recordEvent({
+            parent_event_id: metadata.eventId,
+            event_kind: "chat_out",
+            channel_type: scope.scopeType,
+            scope_type: scope.scopeType,
+            scope_id: scope.scopeId,
+            bot_guid: botGuid,
+            source: "wow-llm-bridge-director-burst",
+            direction: "out",
+            text: line.message,
+            intent: "say_only",
+            payload: {
+              speaker_name: line.bot,
+              burst_type: body.burst_type || body.burstType || "world_argument"
+            }
+          });
+        }
+
+        circuit.recordSuccess();
+        logEvent("info", "director_burst_debug", {
+          eventId: metadata.eventId,
+          burstType: body.burst_type || body.burstType || "world_argument",
+          requestedCount,
+          acceptedCount: normalized.accepted.length,
+          rejected: normalized.rejected.slice(0, 8),
+          selectedBots: normalized.accepted.map((line) => line.bot),
+          messages: normalized.accepted.map((line) => line.message),
+          promptChars: prompt.length,
+          outputChars: String(rawText || "").length,
+          queuedMs,
+          latencyMs: Date.now() - start,
+          rawModel: String(rawText || "").slice(0, 500)
+        });
+
+        return {
+          ok: true,
+          source: "llm",
+          lines: normalized.accepted,
+          rejected: normalized.rejected
+        };
+      } catch (error) {
+        circuit.recordFailure(error);
+        logEvent("error", "director_burst_error", {
+          eventId: metadata.eventId,
+          burstType: body.burst_type || body.burstType || "world_argument",
+          queuedMs,
+          latencyMs: Date.now() - start,
+          error: error.message,
+          code: error.code || null,
+          details: error.details || null
+        });
+        throw error;
+      }
+    };
+
+    try {
+      const result = await queue.enqueue(metadata, task);
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 503, {
+        ok: false,
+        source: "error",
+        error: error.message,
+        code: error.code || null,
+        lines: []
+      });
+    }
+  }
+
   async function handleMemoryApi(req, res, toolName) {
     await memoryReady;
     const body = await readJson(req, 128 * 1024);
@@ -1725,6 +1987,11 @@ function createBridge(config = loadConfig()) {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/director/burst") {
+      await handleDirectorBurst(req, res);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/state/snapshot") {
       await memoryReady;
       const body = await readJson(req, 256 * 1024);
@@ -1812,6 +2079,9 @@ module.exports = {
   extractLegacyContextMemories,
   extractLegacyWorldEventMemories,
   filterLegacyMemoriesForPrompt,
+  buildBurstPrompt,
+  normalizeBurstLines,
+  parseBurstModel,
   tacticalAnswerFromContext,
   recentAnswerFromContext,
   answerFromMemories,

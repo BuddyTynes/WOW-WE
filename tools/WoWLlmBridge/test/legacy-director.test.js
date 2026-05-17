@@ -10,6 +10,9 @@ const {
   extractLegacyContextMemories,
   extractLegacyWorldEventMemories,
   filterLegacyMemoriesForPrompt,
+  buildBurstPrompt,
+  normalizeBurstLines,
+  parseBurstModel,
   tacticalAnswerFromContext,
   recentAnswerFromContext,
   answerFromMemories
@@ -822,4 +825,66 @@ test("legacy director filters unrelated durable memories out of non-profile chat
   assert.equal(filtered.length, 1);
   assert.equal(filtered[0].kind, "relationship");
   assert.doesNotMatch(filtered.map((memory) => memory.summary).join("\n"), /microwave rice/);
+});
+
+test("director burst prompt asks for death pile-on roasts", () => {
+  const prompt = buildBurstPrompt({
+    burst_type: "death_pile_on",
+    requested_count: 4,
+    eligible_bots: ["Bork", "Zan", "Miri", "Laz"],
+    death_character: "Finian",
+    death_cause: "fell to their death",
+    death_location: "The Barrens",
+    death_level: 14
+  }, {
+    eligibleBots: ["Bork", "Zan", "Miri", "Laz"],
+    requestedCount: 4,
+    spiceLines: [{ message: "cute you thought we were getting an event", channel_type: "world", allow_exact: true }]
+  });
+
+  assert.match(prompt, /L bozo/);
+  assert.match(prompt, /Pick 4 different bots/);
+  assert.match(prompt, /fell to their death/);
+});
+
+test("director burst normalizer accepts unique valid bot lines", () => {
+  const raw = "{\"lines\":[{\"bot\":\"Bork\",\"message\":\"L bozo\",\"delay_ms\":1000},{\"bot\":\"Zan\",\"message\":\"rip gravity got another one\",\"delay_ms\":2000}]}";
+  const lines = parseBurstModel(raw);
+  const normalized = normalizeBurstLines(lines, {
+    burst_type: "death_pile_on",
+    death_character: "Finian"
+  }, {
+    eligibleBots: ["Bork", "Zan", "Miri"],
+    requestedCount: 3,
+    recentChat: []
+  });
+
+  assert.equal(normalized.accepted.length, 2);
+  assert.equal(normalized.accepted[0].message, "L bozo");
+  assert.equal(normalized.rejected.length, 0);
+});
+
+test("director burst normalizer rejects duplicate, invalid, command, and dead bot lines", () => {
+  const normalized = normalizeBurstLines([
+    { bot: "Finian", message: "L bozo" },
+    { bot: "Bork", message: ".boost me 80" },
+    { bot: "Nope", message: "rip" },
+    { bot: "Zan", message: "same old line" },
+    { bot: "Miri", message: "skill issue" },
+    { bot: "Miri", message: "second try" }
+  ], {
+    burst_type: "death_pile_on",
+    death_character: "Finian"
+  }, {
+    eligibleBots: ["Finian", "Bork", "Zan", "Miri"],
+    requestedCount: 4,
+    recentChat: [{ text: "same old line" }]
+  });
+
+  assert.deepEqual(normalized.accepted.map((line) => line.bot), ["Miri"]);
+  assert.ok(normalized.rejected.some((line) => line.reason === "dead_bot_in_pile_on"));
+  assert.ok(normalized.rejected.some((line) => line.reason === "command_like"));
+  assert.ok(normalized.rejected.some((line) => line.reason === "invalid_bot"));
+  assert.ok(normalized.rejected.some((line) => line.reason === "recent_repeat"));
+  assert.ok(normalized.rejected.some((line) => line.reason === "duplicate_bot"));
 });

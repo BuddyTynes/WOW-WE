@@ -33,7 +33,9 @@ function loadConfig() {
     spiceEnable: process.env.WOW_LLM_SPICE_ENABLE !== "0",
     spiceLines: Math.trunc(numberFromEnv("WOW_LLM_SPICE_LINES", 6, 0, 20)),
     spiceExactChance: Math.trunc(numberFromEnv("WOW_LLM_SPICE_EXACT_CHANCE", 15, 0, 100)),
-    spiceMinQuality: Math.trunc(numberFromEnv("WOW_LLM_SPICE_MIN_QUALITY", 50, 0, 100))
+    spiceMinQuality: Math.trunc(numberFromEnv("WOW_LLM_SPICE_MIN_QUALITY", 50, 0, 100)),
+    burstMaxLines: Math.trunc(numberFromEnv("WOW_LLM_BURST_MAX_LINES", 8, 1, 12)),
+    burstSpiceLines: Math.trunc(numberFromEnv("WOW_LLM_BURST_SPICE_LINES", 10, 0, 20))
   };
 }
 

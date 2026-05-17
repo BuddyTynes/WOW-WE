@@ -139,7 +139,10 @@ should always repair the client-side channel number.
 
 `mod-llm-npc-director` should keep bot-origin chat from feeding back into the
 director by default. Multi-bot World arguments and hardcore death pile-ons are
-intentional queued director bursts, not general bot-to-bot replies.
+intentional queued director bursts, not general bot-to-bot replies. Prefer the
+bridge `/api/director/burst` path for lively LLM-written burst lines, but keep
+worldserver-side bounded fallback lines for when the local LLM/model is not
+running.
 
 Hardcore random-bot death replacement must create one replacement character,
 not rerun `RandomPlayerbotFactory::CreateRandomBots()`. The bulk factory is a

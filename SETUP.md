@@ -415,9 +415,11 @@ and bots if playerbot behavior drops the channel. If `World` is visible but
 `/# message` says you are not in that numbered channel, run `/join World` once;
 the core resends the client-side join packet even if the server already had you
 as a member. The LLM director uses that channel for slow Spice-of-Life ambient
-chatter and occasional intentional multi-bot argument beats. Bot-origin
-channel/guild/party messages are not fed back into the director, which prevents
-normal bot reply cascades.
+chatter and intentional multi-bot argument beats. Argument beats ask the bridge
+for several staggered bot lines inspired by Spice of Life, but bot-origin
+channel/guild/party messages are still not fed back into the director, which
+prevents normal bot reply cascades. If the local LLM is not running, the
+worldserver logs the bridge failure and falls back to bounded canned lines.
 
 Playerbots are configured for a more organic hardcore run: random bots start at
 level 1, do not auto-upgrade gear, do not auto-learn trainer/quest spells, and
@@ -474,10 +476,13 @@ actions, mail, calendar, arena-team, and channel target commands.
 By default, all random playerbots are marked hardcore the first time they are
 evaluated, and old failed 25% rolls are converted on future login/map checks.
 Hardcore death announcements include cause of death when known, faction, guild,
-level, and location. The director also queues a short World-channel pile-on from
-several other bots; if the dead hardcore bot speaks during the one-minute grace
-window, the bridge prompts it to complain in first person instead of roasting
-itself. Dead hardcore random bots stay online for 60 seconds, then are logged
+level, and location. The director also asks the bridge for a short
+World-channel pile-on from several other bots, with `RIP`, `L bozo`,
+`skill issue`, and cause-aware jokes explicitly allowed. If the bridge/model is
+not available, the worldserver uses bounded fallback lines. If the dead hardcore
+bot speaks during the one-minute grace window, the bridge prompts it to complain
+in first person instead of roasting itself. Dead hardcore random bots stay
+online for 60 seconds, then are logged
 out, deleted, and replaced with one new random character on the same
 random-bot account. Do not call the bulk
 `RandomPlayerbotFactory::CreateRandomBots()` path for death replacement; that
