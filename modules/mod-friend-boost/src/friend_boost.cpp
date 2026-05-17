@@ -14,6 +14,11 @@
 #include "World.h"
 
 #include <algorithm>
+#include <cctype>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Acore::ChatCommands;
@@ -50,6 +55,93 @@ bool IsVeryOutdatedForBoost(Item* item, uint8 targetLevel)
         ? targetLevel - GearReplacementLevelGap : 0;
 
     return GetCatchupItemLevel(item->GetTemplate()) <= threshold;
+}
+
+std::string Trim(std::string value)
+{
+    auto first = std::find_if_not(value.begin(), value.end(),
+        [](unsigned char c) { return std::isspace(c); });
+    auto last = std::find_if_not(value.rbegin(), value.rend(),
+        [](unsigned char c) { return std::isspace(c); }).base();
+
+    if (first >= last)
+        return "";
+
+    return std::string(first, last);
+}
+
+std::string ToLower(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+std::string NormalizeSpecNeedle(std::string value)
+{
+    value = ToLower(Trim(std::move(value)));
+
+    if (value == "prot")
+        return "protection";
+    if (value == "ret")
+        return "retribution";
+    if (value == "resto")
+        return "restoration";
+    if (value == "ele")
+        return "elemental";
+    if (value == "enh")
+        return "enhancement";
+    if (value == "demo")
+        return "demonology";
+    if (value == "destro")
+        return "destruction";
+    if (value == "disc")
+        return "discipline";
+
+    return value;
+}
+
+std::optional<int> FindBoostSpecNo(Player* player, std::string const& specNeedle,
+    std::string& matchedName, std::string& availableNames)
+{
+    if (!player || specNeedle.empty())
+        return std::nullopt;
+
+    uint8 const cls = player->getClass();
+    std::optional<int> match;
+    std::ostringstream available;
+
+    for (int specNo = 0; specNo < MAX_SPECNO; ++specNo)
+    {
+        std::string const& configuredName =
+            sPlayerbotAIConfig.premadeSpecName[cls][specNo];
+        if (configuredName.empty())
+            break;
+
+        if (available.tellp() > 0)
+            available << ", ";
+        available << configuredName;
+
+        std::string lowerName = ToLower(configuredName);
+        bool isMatch = lowerName == specNeedle ||
+            lowerName.rfind(specNeedle, 0) == 0;
+
+        if (!isMatch)
+            continue;
+
+        if (match)
+        {
+            matchedName.clear();
+            availableNames = available.str();
+            return std::nullopt;
+        }
+
+        match = specNo;
+        matchedName = configuredName;
+    }
+
+    availableNames = available.str();
+    return match;
 }
 
 std::vector<ProtectedEquipment> SnapshotProtectedEquipment(
@@ -309,7 +401,8 @@ public:
     }
 
     static bool HandleBoostCommand(
-        ChatHandler* handler, Optional<PlayerIdentifier> target, uint8 level)
+        ChatHandler* handler, Optional<PlayerIdentifier> target, uint8 level,
+        Tail specTail)
     {
         if (!target)
             target = PlayerIdentifier::FromTargetOrSelf(handler);
@@ -317,7 +410,8 @@ public:
         if (!target || !target->IsConnected())
         {
             handler->PSendSysMessage(
-                "Usage: .boost [player] <level>. Target must be online.");
+                "Usage: .boost [player] <level> [specialization]. Target must "
+                "be online.");
             return false;
         }
 
@@ -332,6 +426,25 @@ public:
             handler->PSendSysMessage(
                 "Boost level must be between 1 and {}.", maxLevel);
             return false;
+        }
+
+        std::string specNeedle = NormalizeSpecNeedle(std::string(specTail));
+        std::optional<int> specNo;
+        std::string matchedSpecName;
+        if (!specNeedle.empty())
+        {
+            std::string availableNames;
+            specNo = FindBoostSpecNo(player, specNeedle, matchedSpecName,
+                availableNames);
+            if (!specNo)
+            {
+                handler->PSendSysMessage(
+                    "Unknown or ambiguous specialization '{}'. Available for "
+                    "this class: {}.",
+                    specNeedle, availableNames.empty() ? "none" :
+                    availableNames);
+                return false;
+            }
         }
 
         player->CombatStop(true);
@@ -351,7 +464,10 @@ public:
         factory.InitClassSpells();
         factory.InitAvailableSpells();
         factory.InitSpecialSpells();
-        factory.InitTalentsTree(false, true, true);
+        if (specNo)
+            PlayerbotFactory::InitTalentsBySpecNo(player, *specNo, true);
+        else
+            factory.InitTalentsTree(false, true, true);
         factory.InitMounts();
         InitCatchupBags(player);
 
@@ -388,8 +504,9 @@ public:
 
         handler->PSendSysMessage(
             "Boosted {} to level {} with conservative catch-up gear, skills, "
-            "spells, consumables, bags, mounts, and talents.",
-            handler->playerLink(*target), level);
+            "spells, consumables, bags, mounts, and {} talents.",
+            handler->playerLink(*target), level,
+            matchedSpecName.empty() ? "generated" : matchedSpecName);
 
         if (handler->needReportToTarget(player))
             ChatHandler(player->GetSession()).PSendSysMessage(

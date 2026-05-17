@@ -239,6 +239,16 @@ if (Test-Path $llmDirectorSource) {
         "LLMNpcDirector.AmbientSpiceIntervalMs" = "120000"
         "LLMNpcDirector.AmbientSpiceChancePct" = "40"
         "LLMNpcDirector.AmbientSpiceOnlyWithHumans" = "1"
+        "LLMNpcDirector.DeathPileOnEnable" = "1"
+        "LLMNpcDirector.DeathPileOnMinBots" = "3"
+        "LLMNpcDirector.DeathPileOnMaxBots" = "7"
+        "LLMNpcDirector.DeathPileOnDelayMs" = "1200"
+        "LLMNpcDirector.WorldArgumentEnable" = "1"
+        "LLMNpcDirector.WorldArgumentIntervalMs" = "300000"
+        "LLMNpcDirector.WorldArgumentChancePct" = "25"
+        "LLMNpcDirector.WorldArgumentMinBots" = "2"
+        "LLMNpcDirector.WorldArgumentMaxBots" = "4"
+        "LLMNpcDirector.WorldArgumentDelayMs" = "3500"
     }
 
     foreach ($key in $llmDirectorValues.Keys) {

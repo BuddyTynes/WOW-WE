@@ -111,6 +111,8 @@ Hardcore.RandomBotConvertFailedRolls = 1
 SmallGroup.WorldChannel.Enable = 1
 SmallGroup.WorldChannel.InitialJoinDelaySeconds = 5
 SmallGroup.ToolGatedGathering.Enable = 1
+LLMNpcDirector.DeathPileOnEnable = 1
+LLMNpcDirector.WorldArgumentEnable = 1
 AiPlayerbot.DisableRandomLevels = 1
 AiPlayerbot.RandombotStartingLevel = 1
 AiPlayerbot.AutoUpgradeEquip = 0
@@ -127,7 +129,14 @@ inflate the in-memory/random-bot character pool when called repeatedly.
 does not give the required tools. This is intentional: players can gather only
 after finding or buying the relevant tool, and Herbalism remains trainer-driven.
 The `World` channel auto-join is delayed briefly after login so the client sees
-the channel like a normal `/join World`.
+the channel like a normal `/join World`. If the client can see incoming World
+messages but cannot send to the numbered channel, manually run `/join World`;
+the core will resync the visible client channel entry even when the server
+already has membership.
+
+The LLM director can intentionally create multi-bot World-channel argument
+beats and hardcore death pile-ons. These are queued director events and do not
+re-enable bot-origin chat feedback loops.
 
 ## What Was Installed
 

@@ -62,11 +62,21 @@ struct DirectorConfig
     uint32 groupCooldownMs = 5000;
     uint32 channelCooldownMs = 20000;
     uint32 deathCooldownMs = 5000;
+    bool deathPileOnEnable = true;
+    uint32 deathPileOnMinBots = 3;
+    uint32 deathPileOnMaxBots = 7;
+    uint32 deathPileOnDelayMs = 1200;
     bool ambientSpiceEnable = true;
     uint32 ambientSpiceIntervalMs = 120000;
     uint32 ambientSpiceChancePct = 40;
     uint32 ambientSpiceMinQuality = 60;
     bool ambientSpiceOnlyWithHumans = true;
+    bool worldArgumentEnable = true;
+    uint32 worldArgumentIntervalMs = 300000;
+    uint32 worldArgumentChancePct = 25;
+    uint32 worldArgumentMinBots = 2;
+    uint32 worldArgumentMaxBots = 4;
+    uint32 worldArgumentDelayMs = 3500;
     bool actionDirectorEnable = false;
     std::string actionDirectorUrl = "http://wow-llm-bridge:11434/api/action/event";
     uint32 actionDirectorTimeoutMs = 2500;
@@ -130,6 +140,8 @@ struct DirectorAction
     std::string intent;
     std::string message;
     std::vector<std::string> commands;
+    uint32 notBeforeMs = 0;
+    bool bypassRouteThrottle = false;
 };
 
 struct BatchedChatLine
@@ -162,6 +174,7 @@ std::unordered_map<std::string, PendingChatBatch> g_pendingBatches;
 std::deque<DirectorAction> g_actionQueue;
 std::unordered_map<ObjectGuid::LowType, std::string> g_pendingDeathCauses;
 uint32 g_nextAmbientSpiceMs = 0;
+uint32 g_nextWorldArgumentMs = 0;
 
 bool IsBot(Player* player)
 {
@@ -962,6 +975,24 @@ void PostAmbientSpiceAction(DirectorAction action)
     EnqueueDirectorAction(std::move(action));
 }
 
+std::vector<std::string> BuildWorldArgumentLines(std::string seed);
+
+void PostWorldArgumentActions(std::vector<DirectorAction> actions)
+{
+    if (actions.empty())
+        return;
+
+    DirectorConfig config = GetConfig();
+    std::optional<std::string> seed = FetchSpiceLine(config);
+    std::vector<std::string> lines = BuildWorldArgumentLines(seed.value_or(""));
+
+    for (std::size_t i = 0; i < actions.size(); ++i)
+    {
+        actions[i].message = lines[i % lines.size()];
+        EnqueueDirectorAction(std::move(actions[i]));
+    }
+}
+
 void PostToBridge(ChatEvent event)
 {
     DirectorConfig config = GetConfig();
@@ -1202,7 +1233,7 @@ ScopeSnapshot SnapshotGuild(uint32 guildId)
         else if (IsBot(player))
         {
             ++snapshot.botCount;
-            if (snapshot.botNames.size() < 5)
+            if (snapshot.botNames.size() < 12)
                 snapshot.botNames.push_back(player->GetName());
         }
     }
@@ -1225,7 +1256,7 @@ ScopeSnapshot SnapshotGroup(Group* group)
         else if (IsBot(player))
         {
             ++snapshot.botCount;
-            if (snapshot.botNames.size() < 5)
+            if (snapshot.botNames.size() < 12)
                 snapshot.botNames.push_back(player->GetName());
         }
     }
@@ -1249,7 +1280,7 @@ ScopeSnapshot SnapshotChannel(Channel* channel)
         else if (IsBot(player))
         {
             ++snapshot.botCount;
-            if (snapshot.botNames.size() < 5)
+            if (snapshot.botNames.size() < 12)
                 snapshot.botNames.push_back(player->GetName());
         }
     }
@@ -1283,7 +1314,7 @@ ScopeSnapshot SnapshotNamedChannel(std::string const& channelName)
         else if (IsBot(player))
         {
             ++snapshot.botCount;
-            if (snapshot.botNames.size() < 5)
+            if (snapshot.botNames.size() < 12)
                 snapshot.botNames.push_back(player->GetName());
         }
     }
@@ -1310,6 +1341,99 @@ std::optional<std::string> PickAmbientBot(ScopeSnapshot const& snapshot)
 
     uint64 index = g_ambientBotCursor.fetch_add(1, std::memory_order_relaxed) % snapshot.botNames.size();
     return snapshot.botNames[static_cast<std::size_t>(index)];
+}
+
+std::vector<std::string> PickBotBurst(ScopeSnapshot const& snapshot,
+    std::string const& excludedName, uint32 minCount, uint32 maxCount,
+    uint64 eventId)
+{
+    std::vector<std::string> eligible;
+    for (std::string const& botName : snapshot.botNames)
+        if (botName != excludedName)
+            eligible.push_back(botName);
+
+    if (eligible.empty())
+        return {};
+
+    uint32 cappedMax = std::max<uint32>(minCount, maxCount);
+    uint32 count = std::min<uint32>(eligible.size(), cappedMax);
+    if (count > minCount)
+    {
+        uint32 range = count - minCount + 1;
+        count = minCount +
+            (StableStringId(std::to_string(eventId) + ":burst") % range);
+    }
+
+    uint64 start = g_ambientBotCursor.fetch_add(count, std::memory_order_relaxed) % eligible.size();
+    std::vector<std::string> picked;
+    picked.reserve(count);
+    for (uint32 i = 0; i < count; ++i)
+        picked.push_back(eligible[static_cast<std::size_t>((start + i) % eligible.size())]);
+
+    return picked;
+}
+
+std::string DeathPileOnLine(std::string const& deadName, std::string const& cause,
+    uint32 index)
+{
+    static std::vector<std::string> const generic =
+    {
+        "L bozo",
+        "rip",
+        "skill issue",
+        "hardcore moment",
+        "oof, there goes the run",
+        "press F",
+        "that one is going in guild chat"
+    };
+
+    static std::vector<std::string> const caused =
+    {
+        "imagine dying because you {}",
+        "{} is a wild way to go",
+        "not the {} death",
+        "that {} got hands",
+        "HC claims another one: {}"
+    };
+
+    if (cause.empty())
+    {
+        std::string line = generic[index % generic.size()];
+        if (index % 3 == 1)
+            line += " " + deadName;
+        return line;
+    }
+
+    std::string pattern = caused[index % caused.size()];
+    std::string line;
+    std::size_t marker = pattern.find("{}");
+    if (marker == std::string::npos)
+        line = pattern;
+    else
+    {
+        line = pattern;
+        line.replace(marker, 2, cause);
+    }
+
+    if (index % 4 == 0)
+        line += ", " + deadName;
+    return line;
+}
+
+std::vector<std::string> BuildWorldArgumentLines(std::string seed)
+{
+    seed = Trim(std::move(seed));
+    if (seed.empty())
+        seed = "who keeps pulling extra mobs";
+
+    return
+    {
+        seed,
+        "nah that's bait",
+        "you say that every time and still wipe",
+        "both of you are wrong but keep going",
+        "this is exactly why nobody reads quest text"
+    };
 }
 
 void MaybeQueueAmbientSpice()
@@ -1344,6 +1468,94 @@ void MaybeQueueAmbientSpice()
 
     LOG_DEBUG("module.llm-npc-director", "Queueing ambient spice fetch for bot '{}' in '{}'", action.botName, action.scopeName);
     std::thread(PostAmbientSpiceAction, std::move(action)).detach();
+}
+
+void MaybeQueueWorldArgument()
+{
+    DirectorConfig config = GetConfig();
+    if (!config.enabled || !config.worldArgumentEnable ||
+        !config.routeChannelResponses || config.worldChannelName.empty())
+    {
+        return;
+    }
+
+    uint32 now = GameTime::GetGameTimeMS().count();
+    if (g_nextWorldArgumentMs != 0 &&
+        getMSTimeDiff(now, g_nextWorldArgumentMs) < 0x80000000u)
+    {
+        return;
+    }
+
+    g_nextWorldArgumentMs = now +
+        std::max<uint32>(config.worldArgumentIntervalMs, 60000);
+    if (!PercentRoll(config.worldArgumentChancePct))
+        return;
+
+    ScopeSnapshot snapshot = SnapshotNamedChannel(config.worldChannelName);
+    if (snapshot.humanCount == 0 ||
+        snapshot.botCount < std::max<uint32>(config.worldArgumentMinBots, 2))
+    {
+        return;
+    }
+
+    uint64 eventId = g_nextEventId.fetch_add(1, std::memory_order_relaxed);
+    std::vector<std::string> bots = PickBotBurst(snapshot, "",
+        config.worldArgumentMinBots, config.worldArgumentMaxBots, eventId);
+    if (bots.size() < 2)
+        return;
+
+    std::vector<DirectorAction> actions;
+    actions.reserve(bots.size());
+    for (std::size_t i = 0; i < bots.size(); ++i)
+    {
+        DirectorAction action;
+        action.eventId = eventId;
+        action.channel = "world";
+        action.scopeId = StableStringId(config.worldChannelName);
+        action.scopeName = config.worldChannelName;
+        action.botName = bots[i];
+        action.intent = "say_only";
+        action.notBeforeMs = now + static_cast<uint32>(i) *
+            std::max<uint32>(config.worldArgumentDelayMs, 1000);
+        action.bypassRouteThrottle = true;
+        actions.push_back(std::move(action));
+    }
+
+    LOG_DEBUG("module.llm-npc-director", "Queueing world argument with {} bot(s) in '{}'",
+        actions.size(), config.worldChannelName);
+    std::thread(PostWorldArgumentActions, std::move(actions)).detach();
+}
+
+void QueueHardcoreDeathPileOn(ChatEvent const& event,
+    DirectorConfig const& config)
+{
+    if (!config.deathPileOnEnable || event.scope.botNames.empty())
+        return;
+
+    uint64 eventId = g_nextEventId.fetch_add(1, std::memory_order_relaxed);
+    std::vector<std::string> bots = PickBotBurst(event.scope,
+        event.deathCharacterName, config.deathPileOnMinBots,
+        config.deathPileOnMaxBots, eventId);
+    if (bots.empty())
+        return;
+
+    uint32 now = GameTime::GetGameTimeMS().count();
+    for (std::size_t i = 0; i < bots.size(); ++i)
+    {
+        DirectorAction action;
+        action.eventId = eventId;
+        action.channel = "world";
+        action.scopeId = event.scopeId;
+        action.scopeName = event.scopeName;
+        action.botName = bots[i];
+        action.intent = "say_only";
+        action.message = DeathPileOnLine(event.deathCharacterName,
+            event.deathCause, static_cast<uint32>(i));
+        action.notBeforeMs = now + static_cast<uint32>(i) *
+            std::max<uint32>(config.deathPileOnDelayMs, 500);
+        action.bypassRouteThrottle = true;
+        EnqueueDirectorAction(std::move(action));
+    }
 }
 
 Player* FindGuildBot(uint32 guildId, std::string const& botName)
@@ -1423,8 +1635,12 @@ void RouteSayAction(DirectorAction const& action, DirectorConfig const& config)
         if (snapshot.humanCount == 0)
             return;
 
-        if (ShouldThrottleRoute("guild:" + std::to_string(action.scopeId), config.guildCooldownMs))
+        if (!action.bypassRouteThrottle &&
+            ShouldThrottleRoute("guild:" + std::to_string(action.scopeId),
+                config.guildCooldownMs))
+        {
             return;
+        }
 
         guild->BroadcastToGuild(bot->GetSession(), false, action.message, LANG_UNIVERSAL);
         LOG_DEBUG("module.llm-npc-director", "Routed guild say for event {} through bot '{}'", action.eventId, action.botName);
@@ -1449,8 +1665,12 @@ void RouteSayAction(DirectorAction const& action, DirectorConfig const& config)
         if (snapshot.humanCount == 0)
             return;
 
-        if (ShouldThrottleRoute("channel:" + action.scopeName, config.channelCooldownMs))
+        if (!action.bypassRouteThrottle &&
+            ShouldThrottleRoute("channel:" + action.scopeName,
+                config.channelCooldownMs))
+        {
             return;
+        }
 
         channel->Say(bot->GetGUID(), action.message, LANG_UNIVERSAL);
         LOG_DEBUG("module.llm-npc-director", "Routed channel say for event {} through bot '{}' in '{}'",
@@ -1472,8 +1692,12 @@ void RouteSayAction(DirectorAction const& action, DirectorConfig const& config)
         if (snapshot.humanCount == 0)
             return;
 
-        if (ShouldThrottleRoute("group:" + std::to_string(action.scopeId), config.groupCooldownMs))
+        if (!action.bypassRouteThrottle &&
+            ShouldThrottleRoute("group:" + std::to_string(action.scopeId),
+                config.groupCooldownMs))
+        {
             return;
+        }
 
         WorldPacket data;
         ChatMsg chatType = action.channel == "raid" ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
@@ -1619,7 +1843,22 @@ void DrainDirectorActions()
     std::deque<DirectorAction> actions;
     {
         std::lock_guard<std::mutex> lock(g_actionQueueMutex);
-        actions.swap(g_actionQueue);
+        uint32 now = GameTime::GetGameTimeMS().count();
+        std::deque<DirectorAction> pending;
+        while (!g_actionQueue.empty())
+        {
+            DirectorAction action = std::move(g_actionQueue.front());
+            g_actionQueue.pop_front();
+            if (!action.notBeforeMs ||
+                getMSTimeDiff(action.notBeforeMs, now) < 0x80000000u)
+            {
+                actions.push_back(std::move(action));
+            }
+            else
+                pending.push_back(std::move(action));
+        }
+
+        g_actionQueue.swap(pending);
     }
 
     for (DirectorAction const& action : actions)
@@ -1756,11 +1995,21 @@ public:
         config.groupCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.GroupCooldownMs", 5000);
         config.channelCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.ChannelCooldownMs", 20000);
         config.deathCooldownMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathCooldownMs", 5000);
+        config.deathPileOnEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.DeathPileOnEnable", true);
+        config.deathPileOnMinBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathPileOnMinBots", 3);
+        config.deathPileOnMaxBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathPileOnMaxBots", 7);
+        config.deathPileOnDelayMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.DeathPileOnDelayMs", 1200);
         config.ambientSpiceEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.AmbientSpiceEnable", true);
         config.ambientSpiceIntervalMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceIntervalMs", 120000);
         config.ambientSpiceChancePct = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceChancePct", 40));
         config.ambientSpiceMinQuality = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("LLMNpcDirector.AmbientSpiceMinQuality", 60));
         config.ambientSpiceOnlyWithHumans = sConfigMgr->GetOption<bool>("LLMNpcDirector.AmbientSpiceOnlyWithHumans", true);
+        config.worldArgumentEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.WorldArgumentEnable", true);
+        config.worldArgumentIntervalMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentIntervalMs", 300000);
+        config.worldArgumentChancePct = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentChancePct", 25));
+        config.worldArgumentMinBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentMinBots", 2);
+        config.worldArgumentMaxBots = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentMaxBots", 4);
+        config.worldArgumentDelayMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.WorldArgumentDelayMs", 3500);
         config.actionDirectorEnable = sConfigMgr->GetOption<bool>("LLMNpcDirector.ActionDirectorEnable", false);
         config.actionDirectorUrl = sConfigMgr->GetOption<std::string>("LLMNpcDirector.ActionDirectorUrl", "http://wow-llm-bridge:11434/api/action/event");
         config.actionDirectorTimeoutMs = sConfigMgr->GetOption<uint32>("LLMNpcDirector.ActionDirectorTimeoutMs", 2500);
@@ -1785,6 +2034,7 @@ public:
     {
         DrainBatchedEvents();
         MaybeQueueAmbientSpice();
+        MaybeQueueWorldArgument();
         DrainDirectorActions();
     }
 };
@@ -1918,6 +2168,7 @@ public:
         event.deathGuild = guild;
         event.deathLevel = player->GetLevel();
         event.scope = std::move(snapshot);
+        QueueHardcoreDeathPileOn(event, config);
         ForwardEvent(std::move(event));
     }
 

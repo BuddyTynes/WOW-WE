@@ -411,12 +411,13 @@ because it has no tool gate.
 `mod-small-group-tweaks` also keeps real players and playerbots in the `World`
 channel. The first auto-join is delayed a few seconds after login so the client
 receives a normal visible channel join, then the module lightly rejoins players
-and bots if playerbot behavior drops the channel. If `World` does not appear in
-the chat channel list, try `/join World`; if that works manually, rerun
-`scripts\apply-host-config.ps1` and rebuild/recreate `ac-worldserver` so the
-module config is current. The LLM director uses that channel for slow
-Spice-of-Life ambient chatter. Bot-origin channel/guild/party messages are not
-fed back into the director, which prevents bot reply cascades.
+and bots if playerbot behavior drops the channel. If `World` is visible but
+`/# message` says you are not in that numbered channel, run `/join World` once;
+the core resends the client-side join packet even if the server already had you
+as a member. The LLM director uses that channel for slow Spice-of-Life ambient
+chatter and occasional intentional multi-bot argument beats. Bot-origin
+channel/guild/party messages are not fed back into the director, which prevents
+normal bot reply cascades.
 
 Playerbots are configured for a more organic hardcore run: random bots start at
 level 1, do not auto-upgrade gear, do not auto-learn trainer/quest spells, and
@@ -466,12 +467,18 @@ The `<HC>` name-query tag is enabled by default for this realm. If this marker
 format is changed or disabled later, fully exit the WoW client and clear the
 client `Cache` folder so slash commands, friend adds, guild invites, and
 playerbot commands stop using stale cached display names.
+Server-side target-name normalization strips the configured tag for social and
+action lookups, including shift-click `/who`, invites, whispers, guild/friend
+actions, mail, calendar, arena-team, and channel target commands.
 
 By default, all random playerbots are marked hardcore the first time they are
 evaluated, and old failed 25% rolls are converted on future login/map checks.
 Hardcore death announcements include cause of death when known, faction, guild,
-level, and location. Dead hardcore random bots stay online for 60 seconds, then
-are logged out, deleted, and replaced with one new random character on the same
+level, and location. The director also queues a short World-channel pile-on from
+several other bots; if the dead hardcore bot speaks during the one-minute grace
+window, the bridge prompts it to complain in first person instead of roasting
+itself. Dead hardcore random bots stay online for 60 seconds, then are logged
+out, deleted, and replaced with one new random character on the same
 random-bot account. Do not call the bulk
 `RandomPlayerbotFactory::CreateRandomBots()` path for death replacement; that
 path is for startup/setup and can inflate the available random-bot character
@@ -488,12 +495,14 @@ group's current level with conservative generated gear and supplies:
 
 ```text
 .boost <playerName> <level>
+.boost <playerName> <level> <specialization>
 ```
 
 If the target player is selected, the name can be omitted:
 
 ```text
 .boost <level>
+.boost <level> prot
 ```
 
 The command requires GM access, levels the character, learns level-appropriate
@@ -504,7 +513,9 @@ boost target are preserved so the command feels like catch-up support rather
 than a full character reroll. Bags are capped at 10-slot catch-up bags and only
 empty missing/undersized bag slots are upgraded, so filled bags are not
 destroyed. It does not learn or level professions, so catch-up characters can
-still choose their own crafting and gathering path. It only works while the
-target player is online.
+still choose their own crafting and gathering path. Optional specialization
+matching uses the playerbot premade spec names and accepts unique prefixes and
+common aliases such as `prot`, `ret`, `resto`, `ele`, `enh`, `demo`, `destro`,
+and `disc`. It only works while the target player is online.
 
 For full host notes and troubleshooting, see [SERVER_BUILD_RUNBOOK.md](SERVER_BUILD_RUNBOOK.md).

@@ -233,6 +233,8 @@ void WorldSession::HandleWhoOpcode(WorldPacket& recvData)
 
     recvData >> packetGuildName;                            // guild name, case sensitive...
 
+    normalizePlayerTargetName(packetPlayerName);
+
     recvData >> racemask;                                   // race mask
     recvData >> classmask;                                  // class mask
     recvData >> zonesCount;                                 // zones count, client limit = 10 (2.0.10)
@@ -261,6 +263,7 @@ void WorldSession::HandleWhoOpcode(WorldPacket& recvData)
     {
         std::string temp;
         recvData >> temp;                                   // user entered string, it used as universal search pattern(guild+player name)?
+        normalizePlayerTargetName(temp);
 
         if (!Utf8toWStr(temp, str[i]))
             continue;

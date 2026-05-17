@@ -121,7 +121,9 @@ name-query data can interfere with slash commands, friends, guild invites, and
 playerbot commands.
 The core target-name normalization hook intentionally lets modules strip that
 display tag from client-supplied social/action targets while leaving character
-creation and rename validation strict.
+creation and rename validation strict. Keep `/who` and shift-click who lookups
+covered by this normalization too; the client may include the visible `<HC>`
+tag in the who packet fields.
 
 `mod-small-group-tweaks` owns small-realm behavior for `.online`, all-primary
 profession slots, tool-gated Mining/Skinning/Fishing startup skills, automatic
@@ -130,6 +132,14 @@ invite/charter decisions. The startup gathering skills should not grant tools,
 and Herbalism should stay trainer-driven unless the product intent changes.
 Keep playerbot behavior overrides in repo-owned config/setup files or companion
 modules, not in the cloned `mod-playerbots` repository.
+If the `World` channel appears readable but the client cannot send to its
+numbered slash channel, prefer resyncing the client join state with the normal
+channel join packet over hidden server-only membership. Manual `/join World`
+should always repair the client-side channel number.
+
+`mod-llm-npc-director` should keep bot-origin chat from feeding back into the
+director by default. Multi-bot World arguments and hardcore death pile-ons are
+intentional queued director bursts, not general bot-to-bot replies.
 
 Hardcore random-bot death replacement must create one replacement character,
 not rerun `RandomPlayerbotFactory::CreateRandomBots()`. The bulk factory is a

@@ -160,11 +160,14 @@ void Channel::JoinChannel(Player* player, std::string const& pass)
     ObjectGuid guid = player->GetGUID();
     if (IsOn(guid))
     {
+        if (!player->IsInChannel(this))
+            player->JoinedChannel(this);
+
         // Do not send error message for built-in channels
         if (!IsConstant())
         {
             WorldPacket data;
-            MakePlayerAlreadyMember(&data, guid);
+            MakeYouJoined(&data);
             SendToOne(&data, guid);
         }
         return;
