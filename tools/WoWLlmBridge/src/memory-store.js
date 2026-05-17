@@ -24,7 +24,8 @@ const SOCIAL_FLAG_TYPES = new Set([
 ]);
 const ACTION_COMMANDS = new Set([
   "attack", "follow", "stay", "flee", "runaway", "max dps",
-  "rti skull", "rti cross", "rti cc moon", "rti cc star", "rti cc diamond"
+  "rti skull", "rti cross", "rti cc moon", "rti cc star", "rti cc diamond",
+  "sell gray", "sell vendor", "repair", "maintenance", "summon"
 ]);
 
 function ok(data) {

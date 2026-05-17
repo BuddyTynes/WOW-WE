@@ -20,7 +20,12 @@ const ACTION_INTENTS = new Set([
   "run_away",
   "trade",
   "answer_need",
-  "powerlevel_request"
+  "powerlevel_request",
+  "sell_junk",
+  "repair_gear",
+  "vendor_run",
+  "wait_in_town",
+  "summon_to_player"
 ]);
 
 const COMMAND_TYPES = new Set(["playerbot_command"]);
@@ -91,7 +96,11 @@ function pickBot(event) {
     .map((bot) => typeof bot === "string" ? bot : bot && bot.name)
     .map((name) => String(name || "").trim())
     .filter(Boolean);
-  const scopedName = pickAddressedName(scopedNames) || scopedNames[0];
+  const addressedScopedName = pickAddressedName(scopedNames);
+  if (["party", "raid"].includes(normalizeChannel(event.channel_type || event.channel)) && !addressedScopedName) {
+    return { bot_guid: -1, name: "", synthetic_group_bot: true, target_all_group_bots: true };
+  }
+  const scopedName = addressedScopedName || scopedNames[0];
   if (scopedName) {
     return { bot_guid: -1, name: scopedName, synthetic_group_bot: true };
   }
@@ -220,7 +229,7 @@ function textIncludesAny(text, patterns) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
-function heuristicCandidatePlan(event, bot, speaker) {
+function classifyActionHooks(event, bot, speaker) {
   const text = String(event.message || event.text || "").toLowerCase();
   const channel = normalizeChannel(event.channel_type || event.channel);
   if (!text.trim() || !["party", "raid", "guild", "channel", "world", "say", "yell", "whisper"].includes(channel)) {
@@ -234,7 +243,7 @@ function heuristicCandidatePlan(event, bot, speaker) {
         type: "playerbot_command",
         command,
         target_guid: speaker ? speaker.player_guid : null,
-        reason: "deterministic party action request"
+        reason: "classified chat hook request"
       });
     }
   };
@@ -244,16 +253,42 @@ function heuristicCandidatePlan(event, bot, speaker) {
     /\bget\s+(over\s+)?here\b/,
     /\bfollow\s+me\b/,
     /\bstack\s+(on\s+)?me\b/,
-    /\bon\s+me\b/
+    /\bon\s+me\b/,
+    /\bjoin\s+me\b/,
+    /\benter\s+(the\s+)?dungeon\b/,
+    /\bcome\s+(into|in)\s+(the\s+)?(dungeon|instance)\b/,
+    /\bget\s+(into|in)\s+(the\s+)?(dungeon|instance)\b/,
+    /\btp\s+(to\s+)?me\b/,
+    /\bteleport\s+(to\s+)?me\b/,
+    /\bsummon\s+(to\s+)?me\b/
   ])) {
+    push("summon");
     push("follow");
+  }
+
+  if (textIncludesAny(text, [
+    /\bwait\s+(in|at)\s+(town|the\s+inn|city|org|orgrimmar|stormwind|sw|ironforge|if|undercity|uc|darnassus|thunder\s+bluff)\b/,
+    /\bstay\s+(in|at)\s+(town|the\s+inn|city|org|orgrimmar|stormwind|sw|ironforge|if|undercity|uc|darnassus|thunder\s+bluff)\b/,
+    /\bhang\s+(in|at)\s+(town|the\s+inn|city)\b/
+  ])) {
+    push("summon");
+    push("stay");
   }
 
   if (textIncludesAny(text, [/\bstay\b/, /\bhold\b/, /\bhold\s+position\b/, /\bdont\s+move\b/, /\bdon't\s+move\b/])) {
     push("stay");
   }
 
-  if (textIncludesAny(text, [/\brun\b/, /\bescape\b/, /\bget\s+out\b/, /\bflee\b/, /\breset\b/])) {
+  if (textIncludesAny(text, [
+    /\brun\s+(away|out|back|back\s+out)\b/,
+    /\bwe\s+need\s+to\s+run\b/,
+    /\beveryone\s+run\b/,
+    /\bescape\b/,
+    /\bget\s+out\b/,
+    /\bflee\b/,
+    /\breset\s+(this|it|pull|fight)\b/,
+    /\bwipe\s+it\b/
+  ])) {
     push("flee");
     push("runaway");
   }
@@ -278,8 +313,48 @@ function heuristicCandidatePlan(event, bot, speaker) {
     push("max dps");
   }
 
+  if (textIncludesAny(text, [
+    /\bsell\s+(your\s+)?(gray|grey|junk|trash|vendor)\b/,
+    /\bvendor\s+(your\s+)?(gray|grey|junk|trash|stuff|bags)\b/,
+    /\bempty\s+(your\s+)?bags\b/,
+    /\bbags?\s+(are\s+)?full\b/,
+    /\binventory\s+(is\s+)?full\b/
+  ])) {
+    push("stay");
+    push(textIncludesAny(text, [/\b(gray|grey|trash)\b/]) ? "sell gray" : "sell vendor");
+    push("maintenance");
+  }
+
+  if (textIncludesAny(text, [
+    /\brepair\b/,
+    /\bfix\s+(your\s+)?gear\b/,
+    /\bdurability\b/
+  ])) {
+    push("stay");
+    push("repair");
+    push("maintenance");
+  }
+
   if (commands.length === 0) {
     return null;
+  }
+
+  let intent = "assist_target";
+  if (commands.some((entry) => entry.command === "stay") &&
+      textIncludesAny(text, [/\b(town|inn|city|orgrimmar|stormwind|ironforge|undercity|darnassus|thunder\s+bluff)\b/])) {
+    intent = "wait_in_town";
+  } else if (commands.some((entry) => entry.command === "follow")) {
+    intent = "follow_player";
+  } else if (commands.some((entry) => entry.command === "summon")) {
+    intent = "summon_to_player";
+  } else if (commands.some((entry) => entry.command === "stay")) {
+    intent = "hold_position";
+  } else if (commands.some((entry) => entry.command === "flee" || entry.command === "runaway")) {
+    intent = "run_away";
+  } else if (commands.some((entry) => entry.command === "sell gray" || entry.command === "sell vendor")) {
+    intent = "sell_junk";
+  } else if (commands.some((entry) => entry.command === "repair")) {
+    intent = "repair_gear";
   }
 
   return {
@@ -288,14 +363,16 @@ function heuristicCandidatePlan(event, bot, speaker) {
     bot_guid: bot.bot_guid,
     speaker_player_guid: speaker ? speaker.player_guid : null,
     channel_type: channel,
-    bot_name: bot.name,
-    intent: commands.some((entry) => entry.command === "follow") ? "follow_player" : "assist_target",
+    bot_name: bot.target_all_group_bots ? "" : bot.name,
+    intent,
     say: "",
     commands,
     confidence: 0.72,
     ttl_ms: 4000
   };
 }
+
+const heuristicCandidatePlan = classifyActionHooks;
 
 class ActionDirectorService {
   constructor(options) {
@@ -356,7 +433,7 @@ class ActionDirectorService {
     });
 
     const candidate = input.candidate_plan || input.action_plan || input.plan ||
-      heuristicCandidatePlan(event, bot, speaker) ||
+      classifyActionHooks(event, bot, speaker) ||
       defaultHoldPlan(event, bot, speaker);
     const planResult = validateActionPlan(candidate, event);
     if (!planResult.ok) {
@@ -427,5 +504,6 @@ module.exports = {
   ALLOWED_ACTION_COMMANDS,
   validateActionCommands,
   heuristicCandidatePlan,
+  classifyActionHooks,
   validateActionPlan
 };

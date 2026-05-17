@@ -604,7 +604,7 @@ test("legacy director forces useful context answer over weak model joke", () => 
   assert.doesNotMatch(result.message, /blaming David/i);
 });
 
-test("legacy director forces honest movement limitation", () => {
+test("legacy director holds movement claims for action hook lane", () => {
   const result = JSON.parse(normalizeLegacyDirectorResponse(
     '{"intent":"say_only","bot":"Cumm","message":"Just get here already."}',
     parseLegacyDirectorPrompt([
@@ -617,8 +617,8 @@ test("legacy director forces honest movement limitation", () => {
     { selectedBot: "Cumm" }
   ));
 
-  assert.equal(result.intent, "say_only");
-  assert.match(result.message, /Movement hook is not wired yet/);
+  assert.equal(result.intent, "hold");
+  assert.doesNotMatch(result.message || "", /Movement hook is not wired yet|Just get here/i);
 });
 
 test("legacy director prompt includes known answer for model-voiced memory recall", () => {

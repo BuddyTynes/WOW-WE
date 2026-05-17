@@ -145,7 +145,7 @@ test("ActionDirectorService builds deterministic party actions when no candidate
   assert.equal(event.status, 200);
   assert.equal(event.body.ok, true);
   assert.equal(event.body.data.approved, true);
-  assert.deepEqual(event.body.data.commands.map((command) => command.command), ["follow", "rti skull", "attack"]);
+  assert.deepEqual(event.body.data.commands.map((command) => command.command), ["summon", "follow", "rti skull", "attack"]);
 });
 
 test("ActionDirectorService accepts C++ action event shape with scoped bot names", async () => {
@@ -173,7 +173,35 @@ test("ActionDirectorService accepts C++ action event shape with scoped bot names
   assert.equal(event.body.ok, true);
   assert.equal(event.body.data.approved, true);
   assert.equal(event.body.data.bot_guid, -1);
+  assert.equal(event.body.data.bot_name, "");
   assert.deepEqual(event.body.data.commands.map((command) => command.command), ["flee", "runaway"]);
+});
+
+test("ActionDirectorService classifies party vendor and repair hooks", async () => {
+  const store = tempStore();
+  await store.init();
+  const service = new ActionDirectorService({ store, logger: () => {} });
+
+  const event = await service.handleActionEvent({
+    event_id: "evt-vendor-repair",
+    event_kind: "party_chat",
+    channel_type: "party",
+    text: "boys bags are full, go vendor your junk and repair before we keep grinding",
+    speaker: { guid: 99, name: "Buddy", level: 31 },
+    scope: {
+      id: 123,
+      name: "Buddy",
+      human_count: 1,
+      bot_count: 3,
+      eligible_bots: ["Krulkik", "Belaney", "Tamary"]
+    }
+  });
+
+  assert.equal(event.status, 200);
+  assert.equal(event.body.ok, true);
+  assert.equal(event.body.data.approved, true);
+  assert.equal(event.body.data.bot_name, "");
+  assert.deepEqual(event.body.data.commands.map((command) => command.command), ["stay", "sell vendor", "maintenance", "repair"]);
 });
 
 test("ActionDirectorService builds directed guild follow actions outside parties", async () => {
@@ -200,5 +228,33 @@ test("ActionDirectorService builds directed guild follow actions outside parties
   assert.equal(event.body.ok, true);
   assert.equal(event.body.data.approved, true);
   assert.equal(event.body.data.bot_name, "Zartorg");
-  assert.deepEqual(event.body.data.commands.map((command) => command.command), ["follow"]);
+  assert.deepEqual(event.body.data.commands.map((command) => command.command), ["summon", "follow"]);
+});
+
+test("ActionDirectorService classifies wait in town as summon and stay", async () => {
+  const store = tempStore();
+  await store.init();
+  const service = new ActionDirectorService({ store, logger: () => {} });
+
+  const event = await service.handleActionEvent({
+    event_id: "evt-wait-town",
+    event_kind: "guild_chat",
+    channel_type: "guild",
+    text: "Belaney wait in town while we sort bags",
+    speaker: { guid: 99, name: "Buddy", level: 42 },
+    scope: {
+      id: 42,
+      name: "WeCameWithBrokenTeeth",
+      human_count: 1,
+      bot_count: 2,
+      eligible_bots: ["Belaney", "Tamary"]
+    }
+  });
+
+  assert.equal(event.status, 200);
+  assert.equal(event.body.ok, true);
+  assert.equal(event.body.data.approved, true);
+  assert.equal(event.body.data.intent, "wait_in_town");
+  assert.equal(event.body.data.bot_name, "Belaney");
+  assert.deepEqual(event.body.data.commands.map((command) => command.command), ["summon", "stay"]);
 });

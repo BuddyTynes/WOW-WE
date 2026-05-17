@@ -327,6 +327,16 @@ function isMovementRequest(message) {
   return /\b(come to me|come here|get over here|teleport to me|tp to me|summon|follow me|join me)\b/i.test(message);
 }
 
+function isOperationalHookRequest(message) {
+  const text = String(message || "");
+  return isMovementRequest(text) ||
+    /\b(go\s+)?(sell|vendor)\s+(your\s+)?(gray|grey|junk|trash|vendor|stuff|bags)\b/i.test(text) ||
+    /\bempty\s+(your\s+)?bags\b/i.test(text) ||
+    /\bwait\s+(in|at)\s+(town|the\s+inn|city|org|orgrimmar|stormwind|sw|ironforge|if|undercity|uc|darnassus|thunder\s+bluff)\b/i.test(text) ||
+    /\b(repair|fix\s+(your\s+)?gear)\b/i.test(text) ||
+    /\b(run\s+(away|out|back)|everyone\s+run|get\s+out|flee|wipe\s+it)\b/i.test(text);
+}
+
 function isCorrectionOrStopRequest(message) {
   return /\b(stop|quit|drop it|shut up|dead|died|gone|forever|wrong|not true|actually)\b/i.test(message);
 }
@@ -906,7 +916,7 @@ function forcedLegacySpecificAnswer(parsed, context, bot, maxLength) {
   let line = "";
 
   if (movement) {
-    line = "Movement hook is not wired yet, so I can't come to you.";
+    line = "";
   } else if (tactical) {
     line = isShortAnswerRequest(parsed.message)
       ? tactical
@@ -954,6 +964,16 @@ function normalizeLegacyDirectorResponse(text, parsed, context = {}) {
 
   const bot = chooseLegacyBot(parsed, model.bot || model.bot_name || model.speaker);
   const maxLength = context.tacticalAnswer ? 260 : parsed.channel === "party" || parsed.channel === "raid" ? 120 : 180;
+  if (isOperationalHookRequest(parsed.message)) {
+    context.normalization = {
+      rejected: false,
+      rejectReason: "",
+      modelMessage: model.message || model.say || model.text || "",
+      finalMessage: "",
+      hookRequest: true
+    };
+    return JSON.stringify({ intent: "hold" });
+  }
   const forcedAnswer = forcedLegacySpecificAnswer(parsed, context, bot, maxLength);
   const selfDeath = isHardcoreDeathEvent(parsed) && isSelectedDeadCharacter(parsed, bot);
   let message = stripLazyOpening(truncateChatLine(model.message || model.say || model.text || "", maxLength));
@@ -1416,7 +1436,7 @@ function buildLegacyDirectorPrompt(parsed, context = {}) {
     "For world or hardcore death events, non-dead bots may react like world chat: short, pointed, funny, and aimed at the dead player.",
     "If event_type=hardcore_death and selected_bot_is_dead=1, you are the character who just died. Complain in first person about the death cause. Do not say RIP, L bozo, skill issue, or mock yourself.",
     "Do not ask trivia questions. Do not explain rules. Do not claim you executed game commands.",
-    "If the player asks you to move, teleport, follow, or come to them, say the movement command hook is not wired yet.",
+    "If the player asks for movement, follow, dungeon entry, waiting in town, vendor, repair, combat marks, escape, or another game action, return {\"intent\":\"hold\"}. The separate action hook lane will classify and execute safe hooks.",
     persona ? `You are ${persona.name}: ${persona.seed}` : "",
     persona ? `Your speech style: ${persona.speechStyle}.` : "",
     context.guildBots && context.guildBots.length > 0 ? `Other guild bots online: ${context.guildBots.join(", ")}. You may jab, argue with, or disagree with them by name.` : "",

@@ -213,7 +213,7 @@ test("Action Director refuses KOS come-to-me scenario", (t) => {
   assert.ok(!commandsOf(result).some((command) => /follow|move/i.test(command)), "KOS refusal leaked movement command");
 });
 
-test("social lane does not claim movement actions while hooks are unavailable", () => {
+test("social lane holds movement claims for action hook lane", () => {
   const parsed = parseLegacyDirectorPrompt([
     "channel=guild",
     "scope_name=WeCameWithBrokenTeeth",
@@ -230,7 +230,6 @@ test("social lane does not claim movement actions while hooks are unavailable", 
     { selectedBot: "Cumm" }
   ));
 
-  assert.equal(result.intent, "say_only");
-  assert.match(result.message, /Movement hook is not wired yet/i);
-  assert.doesNotMatch(result.message, /\bon my way\b|\binviting now\b/i);
+  assert.equal(result.intent, "hold");
+  assert.doesNotMatch(result.message || "", /\bon my way\b|\binviting now\b/i);
 });

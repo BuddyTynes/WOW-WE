@@ -954,7 +954,12 @@ std::vector<std::string> AllowedPlayerbotCommands()
         "rti cross",
         "rti cc moon",
         "rti cc star",
-        "rti cc diamond"
+        "rti cc diamond",
+        "sell gray",
+        "sell vendor",
+        "repair",
+        "maintenance",
+        "summon"
     };
 }
 
@@ -2307,11 +2312,47 @@ std::vector<std::string> BuildPartyControlCommands(std::string const& rawMessage
         commands.push_back("runaway");
     }
 
-    if (msg.find("follow") != std::string::npos || msg.find("stack") != std::string::npos)
+    if (msg.find("follow") != std::string::npos || msg.find("stack") != std::string::npos ||
+        msg.find("come to me") != std::string::npos || msg.find("come here") != std::string::npos ||
+        msg.find("get here") != std::string::npos || msg.find("join me") != std::string::npos ||
+        msg.find("dungeon") != std::string::npos || msg.find("instance") != std::string::npos ||
+        msg.find("tp to me") != std::string::npos || msg.find("teleport to me") != std::string::npos ||
+        msg.find("summon") != std::string::npos)
+    {
+        commands.push_back("summon");
         commands.push_back("follow");
+    }
 
     if (msg.find("stay") != std::string::npos || msg.find("hold") != std::string::npos)
         commands.push_back("stay");
+
+    if ((msg.find("wait") != std::string::npos || msg.find("hang") != std::string::npos || msg.find("stay") != std::string::npos) &&
+        (msg.find("town") != std::string::npos || msg.find("inn") != std::string::npos || msg.find("city") != std::string::npos ||
+            msg.find("orgrimmar") != std::string::npos || msg.find("stormwind") != std::string::npos ||
+            msg.find("ironforge") != std::string::npos || msg.find("undercity") != std::string::npos ||
+            msg.find("darnassus") != std::string::npos || msg.find("thunder bluff") != std::string::npos))
+    {
+        commands.push_back("summon");
+        commands.push_back("stay");
+    }
+
+    if (msg.find("sell") != std::string::npos || msg.find("vendor") != std::string::npos ||
+        msg.find("bags") != std::string::npos || msg.find("inventory") != std::string::npos)
+    {
+        if (msg.find("gray") != std::string::npos || msg.find("grey") != std::string::npos ||
+            msg.find("trash") != std::string::npos)
+            commands.push_back("sell gray");
+        else
+            commands.push_back("sell vendor");
+        commands.push_back("maintenance");
+    }
+
+    if (msg.find("repair") != std::string::npos || msg.find("durability") != std::string::npos ||
+        msg.find("fix gear") != std::string::npos)
+    {
+        commands.push_back("repair");
+        commands.push_back("maintenance");
+    }
 
     std::sort(commands.begin(), commands.end());
     commands.erase(std::unique(commands.begin(), commands.end()), commands.end());
